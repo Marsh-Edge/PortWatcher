@@ -1,27 +1,44 @@
-# This is test code for getting understand of socket library
-# this section we import library's
 import socket
 
-# this section we create the type of connection we want
-socket_family = socket.AF_INET
-socket_type = socket.SOCK_DGRAM
-# this section we create a socket connection with ipv4 and udp protocol
-# called conection 
-connection = socket.socket(socket_family,socket_type)
-# in this section we get host name
-host_name = socket.gethostname()
 
-# in this section we get ip address of host by his nane
-host_address = socket.gethostbyname(host_name)
+connectionFamily = socket.AF_INET
+connectionType = socket.SOCK_STREAM
 
-print(host_address)
 
-for port in range(65535):
+connection = socket.socket(connectionFamily, connectionType)
 
-    try:
+targetIp = input("Enter the hostname or IP address to scan: ")
 
-        connection.bind((host_address, 49690))
-    except:
-        print(f'true connection ,{port}')
+udpList = {
+    "HTTPS":[80],
+    "DNS": [53],
+    "DHCP": [67, 68],
+    "TFTP": [69],
+    "NTP": [123],
+    "SNMP": [161, 162],
+    "Syslog": [514],
+    "RIP": [520],
+    "IPsec/IKE": [500, 4500],
+    "mDNS": [5353],
+    "SIP": [5060],
+    "RADIUS": [1812, 1813],
+    "Kerberos": [88],
+    "NetBIOS": [137, 138],
+    "QUIC/HTTP3": [443],
+    "OpenVPN": [1194],
+    "WireGuard": [51820],
+}
 
-connection.close()
+
+def createConnection():
+    # try:
+        for protocol , port in udpList.items():
+            try:
+                result = connection.connect((targetIp, port[0]))
+                print(f'{protocol} : {port} Open !')
+
+            except:
+                    print(f'{protocol} : {port} Closed !')
+
+
+createConnection()
