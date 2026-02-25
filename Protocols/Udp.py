@@ -31,14 +31,16 @@ udpList = {
 
 
 def createConnection():
+    openPortsList = []
     # try:
-        for protocol , port in udpList.items():
-            try:
-                result = connection.connect((targetIp, port[0]))
-                print(f'{protocol} : {port} Open !')
-
-            except:
-                    print(f'{protocol} : {port} Closed !')
+    for protocol , port in udpList.items():
+            result = connection.connect((targetIp, port[0]))
+            openPortsList.append(port[0])
+            
+    # except KeyboardInterrupt:
+    #     print('Exiting')
+    #     return
+    
 
 
 createConnection()
