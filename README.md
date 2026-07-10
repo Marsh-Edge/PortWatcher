@@ -21,8 +21,8 @@ A comprehensive Python-based network port scanning tool that detects open ports 
 - **Language:** Python 3.x
 - **Libraries:** 
   - `socket` - For network communication and port scanning
-  - `os` - For system operations and subprocess management
-  - `sys` - For program control and exit handling
+  - `concurrent.futures` - For parallel thread-based scanning
+  - `threading` - For thread-safe progress tracking
 
 ---
 
@@ -35,8 +35,10 @@ PortWatcher/
 │
 ├── Protocols/
 │   ├── Tcp.py                      # TCP port scanner (common ports)
-│   ├── All-Protocol.py             # Comprehensive port scanner (all ports)
-│   └── Udp.py                      # UDP port scanner
+│   ├── Udp.py                      # UDP port scanner (common ports)
+│   ├── AllProtocol.py              # Comprehensive scanner (all TCP + common UDP)
+│   ├── utils.py                    # Shared utilities, colors, service maps
+│   └── __init__.py                 # Package init
 │
 ├── README.md                       # Project documentation
 ├── LICENSE                         # Project license
@@ -92,24 +94,28 @@ Please select a scanning protocol:
 
 ### **app.py - Main Application**
 - **Menu System:** Provides interactive selection of scanning protocols
-- **Process Management:** Uses `os.system()` to execute individual protocol scanners
-- **Persistent Menu:** Returns to main menu after each scan for continuous operation
-- **Error Handling:** Validates user input and handles invalid selections
+- **Direct Imports:** Calls scanner functions directly (no subprocess spawning)
+- **Input Validation:** Validates hostnames/IPs before scanning
+- **Colored UI:** ANSI-colored menu and prompts for better readability
+- **Error Handling:** Graceful Ctrl+C handling and input validation
 
 ### **Tcp.py - TCP Scanner**
-- Scans **80+ common TCP ports** associated with popular services
-- Fast scanning with 1-microsecond timeout
-- Displays open ports in real-time
-- Services covered: FTP, SSH, Telnet, HTTP, HTTPS, DNS, SMTP, MySQL, PostgreSQL, etc.
+- Scans **70+ common TCP ports** associated with popular services
+- **100 concurrent threads** for fast parallel scanning
+- 0.5s timeout per port for reliable detection
+- Service name detection (HTTP, SSH, MySQL, etc.)
+- Colored output with progress bar and scan summary
 
-### **All-Protocol.py - Comprehensive Scanner**
-- Scans **all 65,535 TCP ports** (0-65535)
-- Comprehensive enumeration of all available ports
+### **AllProtocol.py - Comprehensive Scanner**
+- Scans **all 65,535 TCP ports** (1-65535) concurrently with 100 threads
+- Also scans common UDP ports simultaneously
+- Service name detection for known ports
+- Colored output with progress bar and scan summary
 - Ideal for discovering non-standard services
-- Warning: Takes longer time to complete
 
 ### **Udp.py - UDP Scanner**
-- Scans UDP protocol ports
+- Scans common UDP ports with targeted probes (DNS, SNMP, NTP, etc.)
+- Threaded for speed, reports OPEN/OPEN|FILTERED/FILTERED status
 - Complements TCP scanning for full port coverage
 
 ---
@@ -142,9 +148,10 @@ Please select a scanning protocol:
 
 ## ⚡ Performance Notes
 
-- **TCP Scanner:** ~1-2 minutes for all common ports
-- **All Protocols Scanner:** 5-10 minutes for complete port range (65535 ports)
-- **Timeout Setting:** 1 microsecond for fast enumeration
+- **TCP Scanner:** ~2-5 seconds for common ports (100 threads, 0.5s timeout)
+- **UDP Scanner:** ~5-10 seconds for common ports
+- **All Protocols Scanner:** 2-5 minutes for full TCP range (65,535 ports) + common UDP
+- **Threading:** 100 concurrent threads with 0.5s per-port timeout
 - **Network Dependent:** Speed varies based on network latency and firewall rules
 
 ---
@@ -161,11 +168,11 @@ By using and studying this project, you'll learn:
 
 - ✅ Socket programming in Python
 - ✅ Network communication protocols (TCP/UDP)
-- ✅ Port scanning techniques
+- ✅ Port scanning techniques with service detection
+- ✅ Concurrent programming with ThreadPoolExecutor
 - ✅ Exception handling in network operations
-- ✅ File I/O and system operations
-- ✅ Interactive command-line interfaces
-- ✅ Process management and subprocess execution
+- ✅ Thread-safe progress tracking
+- ✅ Interactive command-line interfaces with colored output
 
 ---
 
@@ -199,8 +206,9 @@ Created for learning and educational purposes.
 
 ## 🎯 Future Enhancements
 
-- [ ] Multi-threading support for faster scanning
-- [ ] Service version detection
+- [x] Multi-threading support for faster scanning
+- [x] Service name detection
+- [x] UDP port scanning
 - [ ] GUI interface using tkinter/PyQt
 - [ ] Export results to CSV/JSON format
 - [ ] Ping sweep before port scanning

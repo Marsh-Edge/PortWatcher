@@ -1,50 +1,76 @@
-# Import the socket module for network communication and operations
+"""TCP port scanner with threading and service detection."""
+
 import socket
+import sys
+import os
+import time
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Configure socket settings for TCP port scanning
-socket_family = socket.AF_INET  # Use IPv4 addresses (AF_INET)
-socket_type = socket.SOCK_STREAM  # Use TCP protocol (SOCK_STREAM)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from utils import (
+    Color, TCP_SERVICES, COMMON_TCP_PORTS,
+    resolve_target, get_local_ip, print_banner, print_progress, print_results,
+)
 
-# Prompt user to enter hostname or IP address to scan
-targetIp = input("Enter the hostname or IP address to scan: ")
+TIMEOUT = 0.5
+MAX_WORKERS = 100
 
-# Resolve hostname to IP address (if a hostname was provided)
-info = socket.getaddrinfo(targetIp, None, socket_family, socket_type)
 
-# Get the local machine's IP address
-getHostName = socket.gethostbyname(socket.gethostname())
-
-# Display banner with scanning source and destination information
-print(f"\nScanning {getHostName} -> {targetIp} for open TCP ports... \n")
-
-# Display source and target IP addresses
-print(f"Hostname IP Address: {getHostName}\nTarget IP Address: {info[0][4][0]}\n")
-
-# List of common TCP ports used by various network services and applications
-TCP_Port = [
-    21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 161, 389, 443, 445, 465, 514, 515, 587, 631, 636, 
-    873, 990,993, 995, 1025, 1026, 1027, 1028, 1029, 1080, 1433, 1720, 1723, 1900, 2049, 2121, 3306, 3389,
-    5432, 5900, 8080,8443, 7, 9, 13, 37, 88, 123, 179, 199, 427, 548, 554, 646, 992, 1521, 6379, 3000, 3001,
-    5000, 5001, 5009, 5050,5060,5061, 8008, 8009, 8010, 8081, 8088, 8090, 8888, 9000, 9001, 9300, 11211, 27017,
-    28017, 50000, 50070, 50075,50090,4444, 5555, 6666, 6667, 7777, 12345, 31337, 49152, 49153, 49154, 49155, 49156,
-    49157
-]
-
-# Loop through each port (sorted from smallest to largest) and attempt connection
-for port in sorted(TCP_Port):
+def scan_tcp_port(target, port, timeout):
+    """Scan a single TCP port. Returns dict if open, None otherwise."""
     try:
-        # Create a new socket with IPv4 and TCP configuration
-        ns = socket.socket(socket_family, socket_type)
-        # Set timeout to 1 microsecond (0.000001 seconds) for fast scanning
-        ns.settimeout(0.000001)
-        # Verify the connection result: 0 means successful connection (port is open)
-        result = ns.connect_ex((targetIp, port))
-        # Display port status only if it is open
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((target, port))
+        sock.close()
         if result == 0:
-            print(f"Port {port:>3} -> OPEN")
-    finally:
-        # Always close the socket to free up system resources
-        ns.close()
+            return {"port": port, "status": "OPEN", "service": TCP_SERVICES.get(port, "Unknown")}
+    except (socket.error, OSError):
+        pass
+    return None
 
-# Announce completion of the scanning process
-print("\nTCP port scanning completed.")
+
+def scan_tcp_ports(target):
+    """Scan common TCP ports on target. Returns list of open port dicts."""
+    resolved = resolve_target(target)
+    if not resolved:
+        print(f"\n  {Color.RED}Error: Could not resolve '{target}'{Color.RESET}\n")
+        return []
+
+    local_ip = get_local_ip()
+    ports = COMMON_TCP_PORTS
+    print_banner(resolved, local_ip, "TCP", len(ports), "(common)")
+
+    open_ports = []
+    counter = [0]
+    lock = threading.Lock()
+    start = time.time()
+
+    try:
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            futures = {
+                executor.submit(scan_tcp_port, resolved, port, TIMEOUT): port
+                for port in ports
+            }
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    open_ports.append(result)
+                with lock:
+                    counter[0] += 1
+                    print_progress(counter[0], len(ports))
+    except KeyboardInterrupt:
+        print(f"\n\n  {Color.YELLOW}Scan interrupted by user.{Color.RESET}")
+
+    duration = f"{time.time() - start:.1f}s"
+    print_results(open_ports, len(ports), "TCP", duration)
+    return open_ports
+
+
+if __name__ == "__main__":
+    target = input("Enter hostname or IP to scan: ").strip()
+    if not target:
+        print("No target specified.")
+        sys.exit(1)
+    scan_tcp_ports(target)

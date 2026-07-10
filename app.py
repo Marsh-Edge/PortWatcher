@@ -1,60 +1,112 @@
-# Import modules for system operations and program control
-import os
+"""PortWatcher - Main Application Entry Point."""
+
 import sys
+import os
+import socket
 
-# Define constants for user menu choices (string values for comparison with input)
-ALL_PROTOCOLS = "1"
-TCP_PROTOCOL = "2"
-UDP_PROTOCOL = "3"
-EXIT = "4"
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Protocols"))
 
-# Define file paths for each scanning protocol script
-APP_PATH = "app.py"
-ALL_PROTOCOLS_PATH = "Protocols/All-Protocol.py"
-TCP_PROTOCOL_PATH = "Protocols/Tcp.py"
-UDP_PROTOCOL_PATH = "Protocols/Udp.py"
+from Tcp import scan_tcp_ports
+from Udp import scan_udp_ports
+from AllProtocol import scan_all_ports
 
-# Display main menu banner and welcome message
-print("\n----------------------------------------")
-print("\nWelcome to the Port Scanner App!")
-print("\nPlease select a scanning protocol:")
 
-# Prompt user to select a scanning option and store their choice
-choose = input("\n1. All Protocols\n2. TCP\n3. UDP\n4. Exit\nEnter your choice: \n")
+class Color:
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    RED = "\033[91m"
+    GREEN = "\033[92m"
+    CYAN = "\033[96m"
+    WHITE = "\033[97m"
 
-# Infinite loop to keep the menu active until user chooses to exit
-while True:
-  # Check if user selected option 1: Scan all protocols (TCP, UDP, and comprehensive)
-  if choose == ALL_PROTOCOLS:
-    # Execute the All-Protocol scanning script as a separate process
-    os.system(f"python {ALL_PROTOCOLS_PATH}")
-    # Ask user if they want to return to the main menu
-    if input("\nDo want to return to the main menu? (y/n): ").lower() == 'y':
-      # Restart the app to show the menu again
-      os.system(f"python {APP_PATH}")
-  # Check if user selected option 2: Scan TCP ports only
-  elif choose == TCP_PROTOCOL:
-    # Execute the TCP port scanning script as a separate process
-    os.system(f"python {TCP_PROTOCOL_PATH}")
-    # Ask user if they want to return to the main menu
-    if input("\nDo want to return to the main menu? (y/n): ").lower() == 'y':
-      # Restart the app to show the menu again
-      os.system(f"python {APP_PATH}")
-  # Check if user selected option 3: Scan UDP ports only
-  elif choose == UDP_PROTOCOL:
-    # Execute the UDP port scanning script as a separate process
-    os.system(f"python {UDP_PROTOCOL_PATH}")
-    # Ask user if they want to return to the main menu
-    if input("\nDo want to return to the main menu? (y/n): ").lower() == 'y':
-      # Restart the app to show the menu again
-      os.system(f"python {APP_PATH}")
-  # Check if user selected option 4: Exit the application
-  elif choose == EXIT:
-    # Display exit message
-    print("\nExiting the Port Scanner App. Goodbye!")
-    # Terminate the program immediately
-    sys.exit()
-  # Handle invalid user input
-  else:
-    # Display error message for invalid choice
-    print("\nInvalid choice. Please select a valid option.")
+
+def validate_target(target):
+    """Validate and resolve a target. Returns resolved IP or None."""
+    if not target or not target.strip():
+        return None
+    try:
+        info = socket.getaddrinfo(target.strip(), None, socket.AF_INET)
+        return info[0][4][0]
+    except (socket.gaierror, IndexError):
+        return None
+
+
+def get_target():
+    """Prompt for target with validation."""
+    c = Color
+    while True:
+        target = input(f"  {c.CYAN}>{c.RESET} Enter target IP or hostname: ").strip()
+        if not target:
+            print(f"  {c.RED}Please enter a valid target.{c.RESET}")
+            continue
+        resolved = validate_target(target)
+        if resolved:
+            return resolved
+        print(f"  {c.RED}Could not resolve '{target}'. Please try again.{c.RESET}")
+
+
+def show_banner():
+    """Show application banner."""
+    c = Color
+    print()
+    print(f"{c.CYAN}{'=' * 50}{c.RESET}")
+    print(f"{c.BOLD}{c.CYAN}  PortWatcher - Network Port Scanner{c.RESET}")
+    print(f"{c.CYAN}{'=' * 50}{c.RESET}")
+
+
+def show_menu():
+    """Show main menu."""
+    c = Color
+    print()
+    print(f"  {c.WHITE}1{c.RESET}. All Protocols  {c.DIM}(TCP 1-65535 + common UDP){c.RESET}")
+    print(f"  {c.WHITE}2{c.RESET}. TCP            {c.DIM}(common TCP ports){c.RESET}")
+    print(f"  {c.WHITE}3{c.RESET}. UDP            {c.DIM}(common UDP ports){c.RESET}")
+    print(f"  {c.WHITE}4{c.RESET}. Exit")
+    print()
+
+
+def main():
+    """Main application loop."""
+    c = Color
+
+    while True:
+        show_banner()
+        show_menu()
+
+        choice = input(f"  {c.CYAN}>{c.RESET} Select option (1-4): ").strip()
+
+        if choice == "4":
+            print(f"\n  {c.GREEN}Goodbye!{c.RESET}\n")
+            break
+        elif choice in ("1", "2", "3"):
+            target = get_target()
+            print()
+            if choice == "1":
+                scan_all_ports(target)
+            elif choice == "2":
+                scan_tcp_ports(target)
+            else:
+                scan_udp_ports(target)
+        else:
+            print(f"\n  {c.RED}Invalid option. Please select 1-4.{c.RESET}\n")
+            continue
+
+        print()
+        again = input(f"  {c.CYAN}>{c.RESET} Return to menu? (y/n): ").strip().lower()
+        if again != "y":
+            print(f"\n  {c.GREEN}Goodbye!{c.RESET}\n")
+            break
+
+        if os.name == "nt":
+            os.system("cls")
+        else:
+            os.system("clear")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print(f"\n\n  {Color.GREEN}Goodbye!{Color.RESET}\n")
+        sys.exit(0)
