@@ -1,227 +1,402 @@
-# 🔍 PortWatcher - Advanced Network Port Scanner
+<p align="center">
+  <h1 align="center">PortWatcher</h1>
+  <p align="center">Advanced Network Port Scanner</p>
+</p>
 
-A comprehensive Python-based network port scanning tool that detects open ports on target hosts using multiple scanning protocols. Designed for network administrators, security professionals, and cybersecurity enthusiasts.
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/Python-3.6+-3776AB.svg" alt="Python 3.6+">
+  <img src="https://img.shields.io/badge/Dependencies-Zero-brightgreen.svg" alt="Zero Dependencies">
+  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg" alt="Cross-Platform">
+</p>
 
----
+<p align="center">
+  A comprehensive Python-based network port scanning tool that detects open ports on target hosts using multiple scanning protocols (TCP and UDP). Built with multi-threaded architecture for high-performance parallel scanning. Designed for network administrators, security professionals, and cybersecurity enthusiasts.
+</p>
 
-## ✨ Features
-
-- **🔹 TCP Port Scanning** - Scans common TCP ports (21, 22, 80, 443, 3306, 5432, etc.)
-- **🔹 Comprehensive Port Scanning** - Scans all 65,535 TCP ports (0-65535)
-- **🔹 UDP Protocol Support** - Dedicated UDP port scanning capability
-- **🔹 Interactive Menu System** - User-friendly command-line interface with persistent menu
-- **🔹 Real-time Results** - Displays open ports as they are discovered
-- **🔹 Network Information Display** - Shows source and target IP address details
-- **🔹 Hostname Resolution** - Automatically resolves hostnames to IP addresses
-
----
-
-## 🛠️ Technologies Used
-
-- **Language:** Python 3.x
-- **Libraries:** 
-  - `socket` - For network communication and port scanning
-  - `concurrent.futures` - For parallel thread-based scanning
-  - `threading` - For thread-safe progress tracking
+<p align="center">
+  <a href="#-preview">Preview</a> &bull;
+  <a href="#-about-the-project">About</a> &bull;
+  <a href="#-installation">Installation</a> &bull;
+  <a href="#-usage">Usage</a> &bull;
+  <a href="#-license">License</a>
+</p>
 
 ---
 
-## 📋 Project Structure
+## Preview
+
+<!-- TODO: Add terminal screenshot or GIF showing PortWatcher in action -->
+
+```
+? Please select a scanning protocol: (Use arrow keys)
+  1) All Protocols - Scans all 65,535 TCP ports + common UDP
+  2) TCP           - Scans common/important TCP ports
+  3) UDP           - Scans UDP ports
+  4) Exit
+
+──────────────────────────────────────────────────
+  Target IP   : 192.168.1.1
+  Source IP   : 10.0.0.42
+──────────────────────────────────────────────────
+
+PORT      STATUS      SERVICE
+──────────────────────────────────────────────────
+21        OPEN        FTP
+22        OPEN        SSH
+80        OPEN        HTTP
+443       OPEN        HTTPS
+3306      OPEN        MySQL
+5432      FILTERED    PostgreSQL
+8080      OPEN        HTTP Alt
+
+Scanned 70 ports in 3.42 seconds
+```
+
+---
+
+## Table of Contents
+
+- [About the Project](#-about-the-project)
+- [Why This Project?](#-why-this-project)
+- [Features](#-features)
+- [Tech Stack](#-tech-stack)
+- [Project Structure](#-project-structure)
+- [Installation](#-installation)
+- [Configuration](#-configuration)
+- [Usage](#-usage)
+- [Commands](#-commands)
+- [Scanned Services](#-scanned-services)
+- [Performance](#-performance)
+- [Roadmap](#-roadmap)
+- [Contributing](#-contributing)
+- [License](#-license)
+- [Author](#-author)
+- [Acknowledgments](#-acknowledgments)
+- [FAQ](#-faq)
+
+---
+
+## About the Project
+
+PortWatcher is a standalone CLI port scanner built entirely with Python's standard library. It identifies open ports and resolves service names on any target host using TCP and UDP scanning protocols. The tool operates with a multi-threaded architecture (100 concurrent workers) to deliver fast, real-time results with a polished terminal interface.
+
+**Problem it solves:** Network professionals need a lightweight, zero-dependency scanner that can quickly inventory open ports across a target, identify running services, and work cross-platform without installation overhead.
+
+**Target audience:**
+
+- Network administrators verifying server configurations
+- Security professionals conducting authorized audits
+- Students learning socket programming and network protocols
+- Penetration testers performing initial reconnaissance
+
+---
+
+## Why This Project?
+
+| Differentiator | Details |
+|----------------|---------|
+| **Zero Dependencies** | Uses only Python standard library modules — no `pip install` required |
+| **Multi-threaded** | 100 concurrent scanning threads for high throughput |
+| **Cross-platform** | Works on Windows, Linux, and macOS with automatic ANSI color support |
+| **Dual Protocol** | Scans both TCP and UDP with protocol-specific probes |
+| **Service Detection** | Maps 60+ TCP ports and 24 UDP ports to human-readable service names |
+| **Instant Setup** | Clone and run — no virtual environment, no build steps |
+
+---
+
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| TCP Common Port Scanning | Scans 70+ common TCP ports associated with popular services |
+| Full TCP Range Scanning | Scans all 65,535 TCP ports (1-65535) |
+| UDP Port Scanning | Dedicated UDP scanning with protocol-specific probes (DNS, SNMP, NTP, IKE, SSDP, mDNS) |
+| Combined Protocol Scanning | Simultaneous TCP (full range) + UDP (common ports) scanning |
+| Multi-threaded Architecture | ThreadPoolExecutor with 100 concurrent workers for parallel scanning |
+| Real-time Progress Bar | Thread-safe progress bar with percentage, count, and visual indicator |
+| Service Name Detection | Maps ports to known service names (HTTP, SSH, MySQL, etc.) |
+| Hostname Resolution | Automatically resolves hostnames to IPv4 addresses |
+| Local IP Detection | Detects the local outward-facing IP address |
+| Colored Terminal Output | Full ANSI color support with Windows compatibility via `ctypes` |
+| Interactive Menu System | Persistent command-line menu with colored prompts |
+| Scan Results Summary | Formatted table with port, status, service, and duration |
+| Graceful Interrupt Handling | Clean exit on Ctrl+C at multiple execution levels |
+| Standalone Modules | Each scanner can be run independently outside the menu |
+
+---
+
+## Tech Stack
+
+| Component | Technology |
+|-----------|------------|
+| **Language** | Python 3.6+ |
+| **Networking** | `socket` (TCP/UDP communication) |
+| **Concurrency** | `concurrent.futures` (ThreadPoolExecutor), `threading` |
+| **System** | `os`, `sys`, `ctypes` (Windows ANSI support) |
+| **Display** | `time` (progress tracking) |
+| **External Dependencies** | None |
+
+---
+
+## Project Structure
 
 ```
 PortWatcher/
 │
-├── app.py                          # Main application entry point with menu system
+├── app.py                        # Main entry point with interactive menu
+├── LICENSE                       # MIT License
+├── README.md                     # Project documentation
+├── .gitignore                    # Git ignore rules
 │
-├── Protocols/
-│   ├── Tcp.py                      # TCP port scanner (common ports)
-│   ├── Udp.py                      # UDP port scanner (common ports)
-│   ├── AllProtocol.py              # Comprehensive scanner (all TCP + common UDP)
-│   ├── utils.py                    # Shared utilities, colors, service maps
-│   └── __init__.py                 # Package init
-│
-├── README.md                       # Project documentation
-├── LICENSE                         # Project license
-└── .gitignore                      # Git ignore configuration
-
+└── Protocols/
+    ├── __init__.py               # Package initializer
+    ├── utils.py                  # Shared utilities, colors, service maps, probes
+    ├── Tcp.py                    # TCP scanner (common ports, threaded)
+    ├── Udp.py                    # UDP scanner (common ports with probes, threaded)
+    └── AllProtocol.py            # Combined scanner (all TCP + common UDP)
 ```
 
 ---
 
-## 🚀 How to Use
+## Installation
 
-### 1. **Prerequisites**
-- Python 3.6 or higher installed
-- Administrator/Root privileges (recommended for accurate scanning)
-- Network access to target host
+### Prerequisites
 
-### 2. **Running the Application**
+- Python 3.6 or higher
+- Network access to the target host
+- Administrator/root privileges recommended for accurate scanning
+
+### Steps
 
 ```bash
+# Clone the repository
+git clone https://github.com/Marsh-Edge/PortWatcher.git
+
 # Navigate to the project directory
 cd PortWatcher
 
-# Run the main application
+# Run the application
 python app.py
 ```
 
-### 3. **Main Menu Options**
-
-```
-Welcome to the Port Scanner App!
-Please select a scanning protocol:
-
-1. All Protocols     - Scans all 65,535 TCP ports
-2. TCP               - Scans common/important TCP ports (~80 ports)
-3. UDP               - Scans UDP ports
-4. Exit              - Closes the application
-```
-
-### 4. **Example Workflow**
-
-```
-1. Run: python app.py
-2. Select option (1-4)
-3. Enter target hostname or IP address
-4. Wait for scanning results
-5. View open ports with status
-6. Choose to return to menu or exit
-```
+No virtual environment, no `pip install`, no configuration files required.
 
 ---
 
-## 🔧 Key Functions Explained
+## Configuration
 
-### **app.py - Main Application**
-- **Menu System:** Provides interactive selection of scanning protocols
-- **Direct Imports:** Calls scanner functions directly (no subprocess spawning)
-- **Input Validation:** Validates hostnames/IPs before scanning
-- **Colored UI:** ANSI-colored menu and prompts for better readability
-- **Error Handling:** Graceful Ctrl+C handling and input validation
+PortWatcher is configured via constants hardcoded in the source files. There are no environment variables or external configuration files.
 
-### **Tcp.py - TCP Scanner**
-- Scans **70+ common TCP ports** associated with popular services
-- **100 concurrent threads** for fast parallel scanning
-- 0.5s timeout per port for reliable detection
-- Service name detection (HTTP, SSH, MySQL, etc.)
-- Colored output with progress bar and scan summary
+| Constant | Value | File | Description |
+|----------|-------|------|-------------|
+| `TIMEOUT` | `0.5` | `Tcp.py`, `Udp.py`, `AllProtocol.py` | Socket timeout in seconds per port |
+| `MAX_WORKERS` | `100` | `Tcp.py`, `Udp.py`, `AllProtocol.py` | Maximum concurrent scanning threads |
+| `COMMON_TCP_PORTS` | 70+ ports | `utils.py` | Curated list of common TCP ports to scan |
+| `COMMON_UDP_PORTS` | 24 ports | `utils.py` | Curated list of common UDP ports to scan |
+| `TCP_SERVICES` | 60+ mappings | `utils.py` | TCP port-to-service-name dictionary |
+| `UDP_SERVICES` | 24 mappings | `utils.py` | UDP port-to-service-name dictionary |
+| `UDP_PROBES` | 6 probes | `utils.py` | Binary probe payloads for UDP services |
 
-### **AllProtocol.py - Comprehensive Scanner**
-- Scans **all 65,535 TCP ports** (1-65535) concurrently with 100 threads
-- Also scans common UDP ports simultaneously
-- Service name detection for known ports
-- Colored output with progress bar and scan summary
-- Ideal for discovering non-standard services
-
-### **Udp.py - UDP Scanner**
-- Scans common UDP ports with targeted probes (DNS, SNMP, NTP, etc.)
-- Threaded for speed, reports OPEN/OPEN|FILTERED/FILTERED status
-- Complements TCP scanning for full port coverage
+To customize scanning behavior, edit these constants directly in the respective source files.
 
 ---
 
-## 📊 Port Scanning Details
+## Usage
 
-### Scanned Services (TCP Common Ports)
+### Interactive Menu
+
+```bash
+python app.py
+```
+
+1. Launch the application
+2. Select a scanning protocol from the menu
+3. Enter a target hostname or IP address
+4. View real-time scanning results
+5. Review the results summary
+6. Choose to return to the menu or exit
+
+### Menu Options
+
+```
+1. All Protocols     — Scans all 65,535 TCP ports + common UDP ports
+2. TCP               — Scans 70+ common TCP ports
+3. UDP               — Scans common UDP ports with protocol-specific probes
+4. Exit              — Closes the application
+```
+
+### Individual Modules
+
+Each scanner can also be run standalone:
+
+```bash
+# TCP scanner only
+python Protocols/Tcp.py
+
+# UDP scanner only
+python Protocols/Udp.py
+
+# Combined full scan
+python Protocols/AllProtocol.py
+```
+
+Each will prompt for a target hostname or IP when run independently.
+
+---
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `python app.py` | Launch the interactive scanner menu |
+| `python Protocols/Tcp.py` | Run TCP common port scan directly |
+| `python Protocols/Udp.py` | Run UDP common port scan directly |
+| `python Protocols/AllProtocol.py` | Run full TCP (1-65535) + UDP scan directly |
+
+---
+
+## Scanned Services
+
+### TCP Common Ports
 
 | Port | Service | Port | Service |
 |------|---------|------|---------|
-| 21   | FTP     | 3306 | MySQL   |
-| 22   | SSH     | 5432 | PostgreSQL |
-| 23   | Telnet  | 5900 | VNC     |
-| 25   | SMTP    | 8080 | HTTP Alt |
-| 53   | DNS     | 8443 | HTTPS Alt |
-| 80   | HTTP    | 27017| MongoDB |
-| 443  | HTTPS   | 6379 | Redis   |
+| 21 | FTP | 3306 | MySQL |
+| 22 | SSH | 3389 | RDP |
+| 23 | Telnet | 5432 | PostgreSQL |
+| 25 | SMTP | 5900 | VNC |
+| 53 | DNS | 6379 | Redis |
+| 80 | HTTP | 8080 | HTTP Alt |
+| 443 | HTTPS | 8443 | HTTPS Alt |
+| 993 | IMAPS | 27017 | MongoDB |
+
+### UDP Common Ports
+
+| Port | Service | Probe Type |
+|------|---------|------------|
+| 53 | DNS | DNS version/bind query |
+| 123 | NTP | Standard NTP client request |
+| 161 | SNMP | SNMP v1 GET request |
+| 500 | IKE | ISAKMP header |
+| 1900 | SSDP | UPnP M-SEARCH |
+| 5353 | mDNS | mDNS query |
 
 ---
 
-## 💡 Use Cases
+## Performance
 
-1. **Network Administration** - Verify open ports on your servers
-2. **Security Auditing** - Identify exposed services and potential vulnerabilities
-3. **Network Troubleshooting** - Diagnose connectivity issues
-4. **Penetration Testing** - Initial reconnaissance phase
-5. **Learning & Education** - Understand Socket programming and network concepts
+| Scan Type | Estimated Time | Details |
+|-----------|---------------|---------|
+| TCP Common Ports | 2-5 seconds | 70+ ports, 100 threads, 0.5s timeout |
+| UDP Common Ports | 5-10 seconds | 24 ports with protocol probes |
+| Full TCP Range + UDP | 2-5 minutes | 65,535 TCP ports + common UDP |
 
----
-
-## ⚡ Performance Notes
-
-- **TCP Scanner:** ~2-5 seconds for common ports (100 threads, 0.5s timeout)
-- **UDP Scanner:** ~5-10 seconds for common ports
-- **All Protocols Scanner:** 2-5 minutes for full TCP range (65,535 ports) + common UDP
-- **Threading:** 100 concurrent threads with 0.5s per-port timeout
-- **Network Dependent:** Speed varies based on network latency and firewall rules
+**Notes:**
+- Timing is network-dependent and varies with latency and firewall rules
+- Thread-safe progress tracking ensures accurate real-time updates
+- Each port is tested with a 0.5-second socket timeout
 
 ---
 
-## ⚠️ Important Disclaimer
+## Roadmap
 
-**Ethical Usage:** This tool should only be used on networks and systems you own or have explicit permission to scan. Unauthorized port scanning may be illegal in your jurisdiction.
+### Completed
 
----
+- [x] TCP common port scanning with service detection
+- [x] Full TCP range scanning (1-65535)
+- [x] UDP port scanning with protocol-specific probes
+- [x] Multi-threaded architecture (100 concurrent workers)
+- [x] Real-time thread-safe progress bar
+- [x] Interactive CLI menu system with colored output
+- [x] Hostname resolution and local IP detection
+- [x] Cross-platform support (Windows, Linux, macOS)
+- [x] Windows ANSI color support via `ctypes`
 
-## 🎓 Learning Outcomes
+### Planned
 
-By using and studying this project, you'll learn:
-
-- ✅ Socket programming in Python
-- ✅ Network communication protocols (TCP/UDP)
-- ✅ Port scanning techniques with service detection
-- ✅ Concurrent programming with ThreadPoolExecutor
-- ✅ Exception handling in network operations
-- ✅ Thread-safe progress tracking
-- ✅ Interactive command-line interfaces with colored output
-
----
-
-## 🔐 Security Considerations
-
-- Always obtain proper authorization before scanning networks
-- Be aware of network policies and firewall rules
-- Some organizations monitor port scanning activity
-- Results may vary based on firewall configurations
-- Consider using VPN/Proxy for sensitive scanning activities
-
----
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 👨‍💻 Author & Contribution
-
-Created for learning and educational purposes. 
-
-**Feel free to:**
-- Fork the repository
-- Report issues
-- Suggest improvements
-- Submit pull requests
-
----
-
-## 🎯 Future Enhancements
-
-- [x] Multi-threading support for faster scanning
-- [x] Service name detection
-- [x] UDP port scanning
-- [ ] GUI interface using tkinter/PyQt
+- [ ] GUI interface using tkinter or PyQt
 - [ ] Export results to CSV/JSON format
 - [ ] Ping sweep before port scanning
-- [ ] Firewall detection
+- [ ] Firewall detection and bypass techniques
 - [ ] Banner grabbing capabilities
-- [ ] Configuration file support
+- [ ] Configuration file support (`.ini` / `.yaml`)
+- [ ] IPv6 support
+- [ ] Host discovery (network enumeration)
 
 ---
 
-## 📞 Contact & Support
+## Contributing
 
-For questions or assistance with this project, feel free to reach out.
+Contributions are welcome. To contribute:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/your-feature`)
+3. Commit your changes (`git commit -m "Add your feature"`)
+4. Push to the branch (`git push origin feature/your-feature`)
+5. Open a Pull Request
+
+Please ensure your code follows the existing style and includes appropriate error handling.
 
 ---
 
-**Happy Scanning! 🚀**
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for full details.
+
+---
+
+## Author
+
+**Marsh** — [@Marsh-Edge](https://github.com/Marsh-Edge)
+
+Contributors:
+- **zen** — [zen.fawzan@gmail.com](mailto:zen.fawzan@gmail.com)
+
+---
+
+## Acknowledgments
+
+- Python `socket` documentation for low-level networking reference
+- Python `concurrent.futures` for accessible thread pool management
+- The network security and open-source community for educational resources and inspiration
+
+---
+
+## FAQ
+
+<details>
+<summary><strong>Do I need administrator/root privileges?</strong></summary>
+
+Recommended but not required. Some scanning operations (especially raw socket operations and certain UDP probes) may need elevated privileges for accurate results.
+</details>
+
+<details>
+<summary><strong>Why does UDP scanning take longer than TCP?</strong></summary>
+
+UDP is connectionless, so the scanner must send probes and wait for responses or timeouts. TCP scanning uses `connect_ex()` which completes the handshake quickly. UDP also requires protocol-specific probes rather than a simple connection attempt.
+</details>
+
+<details>
+<summary><strong>What does "OPEN|FILTERED" mean?</strong></summary>
+
+When a UDP port returns no response and times out, the port status is reported as OPEN|FILTERED — meaning the port could be open (accepting but not responding) or filtered by a firewall that silently drops packets.
+</details>
+
+<details>
+<summary><strong>Can I scan targets on a different network?</strong></summary>
+
+Yes, as long as you have network connectivity to the target (it's reachable from your machine). Enter any hostname or IP address as the target.
+</details>
+
+<details>
+<summary><strong>How do I customize which ports are scanned?</strong></summary>
+
+Edit the `COMMON_TCP_PORTS` and `COMMON_UDP_PORTS` lists in `Protocols/utils.py`. You can add or remove port numbers to tailor the scan to your needs.
+</details>
+
+<details>
+<summary><strong>Is this tool safe to use?</strong></summary>
+
+PortWatcher is intended for authorized use only. Only scan networks and systems you own or have explicit permission to scan. Unauthorized port scanning may be illegal in your jurisdiction.
+</details>
