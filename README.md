@@ -123,6 +123,7 @@ PortWatcher is a standalone CLI port scanner built entirely with Python's standa
 | Scan Results Summary | Formatted table with port, status, service, and duration |
 | Graceful Interrupt Handling | Clean exit on Ctrl+C at multiple execution levels |
 | Standalone Modules | Each scanner can be run independently outside the menu |
+| Export to CSV/JSON | Save scan results to CSV or JSON files for further analysis |
 
 ---
 
@@ -312,11 +313,11 @@ Each will prompt for a target hostname or IP when run independently.
 - [x] Hostname resolution and local IP detection
 - [x] Cross-platform support (Windows, Linux, macOS)
 - [x] Windows ANSI color support via `ctypes`
+- [x] Export results to CSV/JSON format
 
 ### Planned
 
 - [ ] GUI interface using tkinter or PyQt
-- [ ] Export results to CSV/JSON format
 - [ ] Ping sweep before port scanning
 - [ ] Firewall detection and bypass techniques
 - [ ] Banner grabbing capabilities

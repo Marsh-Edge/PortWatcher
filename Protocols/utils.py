@@ -4,6 +4,8 @@ import os
 import sys
 import socket
 import ctypes
+import csv
+import json
 
 if os.name == "nt":
     try:
@@ -162,3 +164,76 @@ def print_results(open_ports, total_scanned, protocol, duration):
         f"Time: {duration}"
     )
     print(f"{c.CYAN}{'=' * 60}{c.RESET}\n")
+
+
+def export_to_csv(results, filepath):
+    """Export scan results to a CSV file."""
+    if not results:
+        return False
+    try:
+        fieldnames = ["port", "status", "service"]
+        if any("proto" in r for r in results):
+            fieldnames.append("proto")
+        with open(filepath, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(results)
+        return True
+    except Exception as e:
+        print(f"\n  {Color.RED}Export failed: {e}{Color.RESET}")
+        return False
+
+
+def export_to_json(results, filepath):
+    """Export scan results to a JSON file."""
+    if not results:
+        return False
+    try:
+        with open(filepath, "w") as f:
+            json.dump(results, f, indent=2)
+        return True
+    except Exception as e:
+        print(f"\n  {Color.RED}Export failed: {e}{Color.RESET}")
+        return False
+
+
+def prompt_export(results):
+    """Prompt user to export scan results to CSV or JSON."""
+    if not results:
+        return
+
+    c = Color
+    choice = input(
+        f"  {c.CYAN}>{c.RESET} Export results to file? (y/n): "
+    ).strip().lower()
+    if choice != "y":
+        return
+
+    print()
+    print(f"  {c.WHITE}1{c.RESET}. CSV")
+    print(f"  {c.WHITE}2{c.RESET}. JSON")
+    fmt = input(f"  {c.CYAN}>{c.RESET} Select format (1-2): ").strip()
+
+    if fmt == "1":
+        ext = ".csv"
+        export_fn = export_to_csv
+    elif fmt == "2":
+        ext = ".json"
+        export_fn = export_to_json
+    else:
+        print(f"\n  {c.RED}Invalid format.{c.RESET}")
+        return
+
+    default_name = f"portwatcher_scan{ext}"
+    filename = input(
+        f"  {c.CYAN}>{c.RESET} Filename [{default_name}]: "
+    ).strip()
+    if not filename:
+        filename = default_name
+
+    if not filename.endswith(ext):
+        filename += ext
+
+    print()
+    if export_fn(results, filename):
+        print(f"  {c.GREEN}Results exported to {filename}{c.RESET}\n")

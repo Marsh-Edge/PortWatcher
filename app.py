@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Pro
 from Tcp import scan_tcp_ports
 from Udp import scan_udp_ports
 from AllProtocol import scan_all_ports
+from utils import prompt_export
 
 
 class Color:
@@ -83,11 +84,12 @@ def main():
             target = get_target()
             print()
             if choice == "1":
-                scan_all_ports(target)
+                results = scan_all_ports(target)
             elif choice == "2":
-                scan_tcp_ports(target)
+                results = scan_tcp_ports(target)
             else:
-                scan_udp_ports(target)
+                results = scan_udp_ports(target)
+            prompt_export(results)
         else:
             print(f"\n  {c.RED}Invalid option. Please select 1-4.{c.RESET}\n")
             continue
