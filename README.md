@@ -262,7 +262,11 @@ python app.py 192.168.1.1 --timeout 1.0 --workers 200
 | `-o, --output` | Export results to a `.csv` or `.json` file |
 | `--timeout` | Per-port socket timeout in seconds (default `0.5`) |
 | `--workers` | Maximum concurrent scanning threads (default `100`) |
+| `--no-color` | Disable colored output (auto-disabled when stdout is not a terminal) |
+| `--no-progress` | Disable the progress bar (auto-disabled when stdout is not a terminal) |
 | `-v, --version` | Show version and exit |
+
+Exported results are sorted by protocol and port for stable, diff-friendly output.
 
 ### Individual Modules
 

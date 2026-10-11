@@ -29,6 +29,18 @@ class Color:
     WHITE = "\033[97m"
 
 
+_COLOR_CODES = {
+    name: getattr(Color, name)
+    for name in ("RESET", "BOLD", "DIM", "RED", "GREEN", "YELLOW", "CYAN", "WHITE")
+}
+
+
+def set_color_enabled(enabled):
+    """Enable or disable ANSI color output globally."""
+    for name, code in _COLOR_CODES.items():
+        setattr(Color, name, code if enabled else "")
+
+
 TCP_SERVICES = {
     7: "Echo", 9: "Discard", 13: "Daytime", 21: "FTP", 22: "SSH",
     23: "Telnet", 25: "SMTP", 53: "DNS", 80: "HTTP", 110: "POP3",
@@ -173,6 +185,7 @@ def run_threaded_scan(worker, items, max_workers=100, show_progress=True):
     """
     results = []
     counter = [0]
+    last_pct = [-1]
     lock = threading.Lock()
     total = len(items)
     executor = ThreadPoolExecutor(max_workers=max_workers)
@@ -186,13 +199,19 @@ def run_threaded_scan(worker, items, max_workers=100, show_progress=True):
                 results.append(result)
             with lock:
                 counter[0] += 1
+                current = counter[0]
                 if show_progress and total:
-                    print_progress(counter[0], total)
+                    pct = current * 100 // total
+                    if pct != last_pct[0] or current == total:
+                        last_pct[0] = pct
+                        print_progress(current, total)
     except KeyboardInterrupt:
         interrupted = True
         for future in futures:
             future.cancel()
     finally:
+        if show_progress and total:
+            _clear_progress_line()
         if interrupted:
             try:
                 executor.shutdown(wait=False, cancel_futures=True)
@@ -232,6 +251,12 @@ def print_progress(current, total):
     sys.stdout.flush()
 
 
+def _clear_progress_line():
+    """Erase the in-place progress bar so results print cleanly."""
+    sys.stdout.write("\r" + " " * 60 + "\r")
+    sys.stdout.flush()
+
+
 def print_port_table(rows):
     """Print a Port/Status/Service table for the given result rows."""
     c = Color
@@ -249,23 +274,23 @@ def print_port_table(rows):
 def print_results(open_ports, total_scanned, protocol, duration):
     """Print formatted single-protocol scan results."""
     c = Color
-    open_ports.sort(key=lambda x: x["port"])
+    rows = sorted(open_ports, key=lambda x: x["port"])
 
     print()
     print(f"{c.CYAN}{'=' * 60}{c.RESET}")
     print(f"{c.BOLD}  Results - {protocol}{c.RESET}")
     print(f"{c.CYAN}{'=' * 60}{c.RESET}")
 
-    if open_ports:
-        print(f"\n  {c.GREEN}{c.BOLD}{len(open_ports)} open port(s) found:{c.RESET}\n")
-        print_port_table(open_ports)
+    if rows:
+        print(f"\n  {c.GREEN}{c.BOLD}{len(rows)} open port(s) found:{c.RESET}\n")
+        print_port_table(rows)
     else:
         print(f"\n  {c.RED}No open ports found.{c.RESET}")
 
     print(f"\n{c.CYAN}{'-' * 60}{c.RESET}")
     print(
         f"  Scanned: {total_scanned:,} ports | "
-        f"Open: {len(open_ports)} | "
+        f"Open: {len(rows)} | "
         f"Time: {duration}"
     )
     print(f"{c.CYAN}{'=' * 60}{c.RESET}\n")
@@ -290,19 +315,24 @@ def _prepare_path(filepath):
         os.makedirs(parent, exist_ok=True)
 
 
+def _sort_key(result):
+    return (result.get("proto", ""), result["port"])
+
+
 def export_to_csv(results, filepath):
     """Export scan results to a CSV file."""
     if not results:
         return False
     try:
         _prepare_path(filepath)
+        rows = sorted(results, key=_sort_key)
         fieldnames = ["port", "status", "service"]
-        if any("proto" in r for r in results):
+        if any("proto" in r for r in rows):
             fieldnames.append("proto")
         with open(filepath, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
-            writer.writerows(results)
+            writer.writerows(rows)
         return True
     except Exception as e:
         print(f"\n  {Color.RED}Export failed: {e}{Color.RESET}")
@@ -316,7 +346,7 @@ def export_to_json(results, filepath):
     try:
         _prepare_path(filepath)
         with open(filepath, "w") as f:
-            json.dump(results, f, indent=2)
+            json.dump(sorted(results, key=_sort_key), f, indent=2)
         return True
     except Exception as e:
         print(f"\n  {Color.RED}Export failed: {e}{Color.RESET}")

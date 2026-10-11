@@ -16,7 +16,8 @@ TIMEOUT = 0.5
 MAX_WORKERS = 100
 
 
-def scan_tcp_ports(target, ports=None, timeout=TIMEOUT, workers=MAX_WORKERS):
+def scan_tcp_ports(target, ports=None, timeout=TIMEOUT, workers=MAX_WORKERS,
+                   show_progress=True):
     """Scan TCP ports on target. Returns list of open port dicts."""
     resolved = resolve_target(target)
     if not resolved:
@@ -32,10 +33,13 @@ def scan_tcp_ports(target, ports=None, timeout=TIMEOUT, workers=MAX_WORKERS):
 
     worker = partial(scan_tcp_port, resolved, timeout=timeout)
     start = time.time()
-    open_ports, interrupted = run_threaded_scan(worker, ports, max_workers=workers)
+    open_ports, interrupted = run_threaded_scan(
+        worker, ports, max_workers=workers, show_progress=show_progress
+    )
     if interrupted:
         print(f"\n\n  {Color.YELLOW}Scan interrupted by user.{Color.RESET}")
 
+    open_ports.sort(key=lambda x: x["port"])
     duration = f"{time.time() - start:.1f}s"
     print_results(open_ports, len(ports), "TCP", duration)
     return open_ports

@@ -2,7 +2,6 @@
 
 import sys
 import os
-import socket
 import argparse
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Protocols"))
@@ -12,6 +11,7 @@ from Udp import scan_udp_ports
 from AllProtocol import scan_all_ports
 from utils import (
     Color, prompt_export, export_to_csv, export_to_json,
+    resolve_target, set_color_enabled,
 )
 
 VERSION = "1.1.0"
@@ -21,11 +21,7 @@ def validate_target(target):
     """Validate and resolve a target. Returns resolved IP or None."""
     if not target or not target.strip():
         return None
-    try:
-        info = socket.getaddrinfo(target.strip(), None, socket.AF_INET)
-        return info[0][4][0]
-    except (socket.gaierror, IndexError):
-        return None
+    return resolve_target(target.strip())
 
 
 def parse_port_spec(spec):
@@ -141,6 +137,28 @@ def export_results(results, filepath):
     return False
 
 
+def _positive_float(value):
+    """argparse type: a finite float greater than zero."""
+    try:
+        number = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid number: '{value}'")
+    if number <= 0 or number != number or number == float("inf"):
+        raise argparse.ArgumentTypeError("must be a positive number")
+    return number
+
+
+def _positive_int(value):
+    """argparse type: an integer greater than or equal to one."""
+    try:
+        number = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid integer: '{value}'")
+    if number < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return number
+
+
 def build_parser():
     """Build the command-line argument parser."""
     parser = argparse.ArgumentParser(
@@ -165,12 +183,20 @@ def build_parser():
         help="Export results to a .csv or .json file.",
     )
     parser.add_argument(
-        "--timeout", type=float, default=0.5,
+        "--timeout", type=_positive_float, default=0.5,
         help="Per-port socket timeout in seconds (default: 0.5).",
     )
     parser.add_argument(
-        "--workers", type=int, default=100,
+        "--workers", type=_positive_int, default=100,
         help="Maximum concurrent scanning threads (default: 100).",
+    )
+    parser.add_argument(
+        "--no-color", action="store_true",
+        help="Disable colored output (auto-disabled when not a terminal).",
+    )
+    parser.add_argument(
+        "--no-progress", action="store_true",
+        help="Disable the progress bar (auto-disabled when not a terminal).",
     )
     parser.add_argument(
         "-v", "--version", action="version",
@@ -181,6 +207,10 @@ def build_parser():
 
 def run_cli(args):
     """Execute a non-interactive scan from parsed CLI arguments."""
+    is_tty = sys.stdout.isatty()
+    set_color_enabled(is_tty and not args.no_color)
+    show_progress = is_tty and not args.no_progress
+
     ports = None
     if args.port_range:
         try:
@@ -191,15 +221,18 @@ def run_cli(args):
 
     if args.protocol == "tcp":
         results = scan_tcp_ports(
-            args.target, ports=ports, timeout=args.timeout, workers=args.workers
+            args.target, ports=ports, timeout=args.timeout, workers=args.workers,
+            show_progress=show_progress,
         )
     elif args.protocol == "udp":
         results = scan_udp_ports(
-            args.target, ports=ports, timeout=args.timeout, workers=args.workers
+            args.target, ports=ports, timeout=args.timeout, workers=args.workers,
+            show_progress=show_progress,
         )
     else:
         results = scan_all_ports(
-            args.target, tcp_ports=ports, timeout=args.timeout, workers=args.workers
+            args.target, tcp_ports=ports, timeout=args.timeout, workers=args.workers,
+            show_progress=show_progress,
         )
 
     if args.output:
