@@ -439,7 +439,7 @@ Yes, as long as you have network connectivity to the target (it's reachable from
 <details>
 <summary><strong>How do I customize which ports are scanned?</strong></summary>
 
-Edit the `COMMON_TCP_PORTS` and `COMMON_UDP_PORTS` lists in `Protocols/utils.py`. You can add or remove port numbers to tailor the scan to your needs.
+Use the `-r/--range` flag to scan a custom set (e.g. `python app.py <target> -r 22,80,443` or `-r 1-1000`). To change the defaults used by the interactive menu and when no range is given, edit the `COMMON_TCP_PORTS` and `COMMON_UDP_PORTS` lists in `Protocols/utils.py`.
 </details>
 
 <details>

@@ -232,7 +232,10 @@ def print_banner(target_ip, local_ip, protocol, port_count, scan_type=""):
     print(f"  {c.DIM}Source:{c.RESET}      {local_ip}")
     print(f"  {c.DIM}Target:{c.RESET}      {target_ip}")
     print(f"  {c.DIM}Protocol:{c.RESET}    {protocol}")
-    print(f"  {c.DIM}Port range:{c.RESET}  {port_count:,} ports {scan_type}")
+    range_line = f"{port_count:,} ports"
+    if scan_type:
+        range_line += f" {scan_type}"
+    print(f"  {c.DIM}Port range:{c.RESET}  {range_line}")
     print(f"{c.CYAN}{'-' * 60}{c.RESET}")
     print(f"  {c.DIM}Press Ctrl+C to stop scanning{c.RESET}")
     print()
