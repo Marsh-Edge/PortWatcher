@@ -124,6 +124,7 @@ PortWatcher is a standalone CLI port scanner built entirely with Python's standa
 | Graceful Interrupt Handling | Clean exit on Ctrl+C at multiple execution levels |
 | Standalone Modules | Each scanner can be run independently outside the menu |
 | Export to CSV/JSON | Save scan results to CSV or JSON files for further analysis |
+| Scriptable CLI | Non-interactive scans with protocol, port-range, output, timeout, and worker flags |
 
 ---
 
@@ -199,7 +200,7 @@ PortWatcher is configured via constants hardcoded in the source files. There are
 | `UDP_SERVICES` | 24 mappings | `utils.py` | UDP port-to-service-name dictionary |
 | `UDP_PROBES` | 6 probes | `utils.py` | Binary probe payloads for UDP services |
 
-To customize scanning behavior, edit these constants directly in the respective source files.
+To customize scanning behavior, edit these constants directly in the respective source files. When using the CLI, `--timeout`, `--workers`, and `-r/--range` override the corresponding defaults for that run without editing the source.
 
 ---
 
@@ -227,6 +228,42 @@ python app.py
 4. Exit              — Closes the application
 ```
 
+### Command-Line Interface
+
+Scans can also be run non-interactively for scripting and automation. Passing a
+target skips the menu:
+
+```bash
+# Scan common TCP ports on a target
+python app.py 192.168.1.1
+
+# Scan specific ports / ranges (TCP is the default protocol)
+python app.py 192.168.1.1 -r 22,80,443,8000-8100
+
+# UDP scan
+python app.py 192.168.1.1 -p udp
+
+# Full TCP (1-65535) + common UDP scan
+python app.py 192.168.1.1 -p all
+
+# Export results to CSV or JSON
+python app.py 192.168.1.1 -r 1-1024 -o results.csv
+python app.py 192.168.1.1 -p udp -o results.json
+
+# Tune timeout and concurrency
+python app.py 192.168.1.1 --timeout 1.0 --workers 200
+```
+
+| Flag | Description |
+|------|-------------|
+| `<target>` | Target hostname or IP. Omit to launch the interactive menu |
+| `-p, --protocol` | `tcp` (default), `udp`, or `all` |
+| `-r, --range` | Ports to scan: `22,80,443` or `1-1000` (defaults to common ports; for `all` it applies to the TCP range) |
+| `-o, --output` | Export results to a `.csv` or `.json` file |
+| `--timeout` | Per-port socket timeout in seconds (default `0.5`) |
+| `--workers` | Maximum concurrent scanning threads (default `100`) |
+| `-v, --version` | Show version and exit |
+
 ### Individual Modules
 
 Each scanner can also be run standalone:
@@ -251,6 +288,11 @@ Each will prompt for a target hostname or IP when run independently.
 | Command | Description |
 |---------|-------------|
 | `python app.py` | Launch the interactive scanner menu |
+| `python app.py <target>` | Scan common TCP ports on a target |
+| `python app.py <target> -p udp` | Scan common UDP ports on a target |
+| `python app.py <target> -p all` | Scan all TCP (1-65535) + common UDP ports |
+| `python app.py <target> -r 22,80,443` | Scan a custom list or range of ports |
+| `python app.py <target> -o results.csv` | Export results to CSV or JSON |
 | `python Protocols/Tcp.py` | Run TCP common port scan directly |
 | `python Protocols/Udp.py` | Run UDP common port scan directly |
 | `python Protocols/AllProtocol.py` | Run full TCP (1-65535) + UDP scan directly |

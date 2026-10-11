@@ -6,6 +6,8 @@ import socket
 import ctypes
 import csv
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 if os.name == "nt":
     try:
@@ -85,6 +87,11 @@ COMMON_UDP_PORTS = sorted([
 def resolve_target(target):
     """Resolve hostname/IP. Returns resolved IP string or None."""
     try:
+        socket.inet_pton(socket.AF_INET, target)
+        return target
+    except (socket.error, OSError):
+        pass
+    try:
         info = socket.getaddrinfo(target, None, socket.AF_INET)
         return info[0][4][0]
     except (socket.gaierror, IndexError):
@@ -102,6 +109,98 @@ def get_local_ip():
         return ip
     except Exception:
         return "127.0.0.1"
+
+
+def scan_tcp_port(target, port, timeout, proto=None):
+    """Scan a single TCP port. Returns dict if open, None otherwise."""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((target, port))
+        sock.close()
+        if result == 0:
+            entry = {
+                "port": port,
+                "status": "OPEN",
+                "service": TCP_SERVICES.get(port, "Unknown"),
+            }
+            if proto:
+                entry["proto"] = proto
+            return entry
+    except (socket.error, OSError):
+        pass
+    return None
+
+
+def _udp_entry(port, status, service, proto):
+    entry = {"port": port, "status": status, "service": service}
+    if proto:
+        entry["proto"] = proto
+    return entry
+
+
+def scan_udp_port(target, port, timeout, proto=None):
+    """Scan a single UDP port. Returns dict with status or None."""
+    service = UDP_SERVICES.get(port, "Unknown")
+    probe = UDP_PROBES.get(port, b"\x00")
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(timeout)
+        try:
+            sock.sendto(probe, (target, port))
+        except OSError:
+            sock.close()
+            return _udp_entry(port, "FILTERED", service, proto)
+        try:
+            sock.recvfrom(1024)
+            sock.close()
+            return _udp_entry(port, "OPEN", service, proto)
+        except socket.timeout:
+            sock.close()
+            return _udp_entry(port, "OPEN|FILTERED", service, proto)
+        except ConnectionRefusedError:
+            sock.close()
+            return None
+    except (socket.error, OSError):
+        return None
+
+
+def run_threaded_scan(worker, items, max_workers=100, show_progress=True):
+    """Run ``worker(item)`` for each item concurrently.
+
+    Returns ``(results, interrupted)`` where ``results`` contains every
+    non-None worker return value collected before completion.
+    """
+    results = []
+    counter = [0]
+    lock = threading.Lock()
+    total = len(items)
+    executor = ThreadPoolExecutor(max_workers=max_workers)
+    futures = []
+    interrupted = False
+    try:
+        futures = [executor.submit(worker, item) for item in items]
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                results.append(result)
+            with lock:
+                counter[0] += 1
+                if show_progress and total:
+                    print_progress(counter[0], total)
+    except KeyboardInterrupt:
+        interrupted = True
+        for future in futures:
+            future.cancel()
+    finally:
+        if interrupted:
+            try:
+                executor.shutdown(wait=False, cancel_futures=True)
+            except TypeError:
+                executor.shutdown(wait=False)
+        else:
+            executor.shutdown(wait=True)
+    return results, interrupted
 
 
 def print_banner(target_ip, local_ip, protocol, port_count, scan_type=""):
@@ -133,6 +232,20 @@ def print_progress(current, total):
     sys.stdout.flush()
 
 
+def print_port_table(rows):
+    """Print a Port/Status/Service table for the given result rows."""
+    c = Color
+    print(f"  {'Port':>7}  {'Status':<16}  Service")
+    print(f"  {'-' * 7}  {'-' * 16}  {'-' * 20}")
+    for p in rows:
+        status_color = c.GREEN if p["status"] == "OPEN" else c.YELLOW
+        print(
+            f"  {c.WHITE}{p['port']:>7}{c.RESET}  "
+            f"{status_color}{p['status']:<16}{c.RESET}  "
+            f"{c.DIM}{p['service']}{c.RESET}"
+        )
+
+
 def print_results(open_ports, total_scanned, protocol, duration):
     """Print formatted single-protocol scan results."""
     c = Color
@@ -145,15 +258,7 @@ def print_results(open_ports, total_scanned, protocol, duration):
 
     if open_ports:
         print(f"\n  {c.GREEN}{c.BOLD}{len(open_ports)} open port(s) found:{c.RESET}\n")
-        print(f"  {'Port':>7}  {'Status':<16}  Service")
-        print(f"  {'-' * 7}  {'-' * 16}  {'-' * 20}")
-        for p in open_ports:
-            status_color = c.GREEN if p["status"] == "OPEN" else c.YELLOW
-            print(
-                f"  {c.WHITE}{p['port']:>7}{c.RESET}  "
-                f"{status_color}{p['status']:<16}{c.RESET}  "
-                f"{c.DIM}{p['service']}{c.RESET}"
-            )
+        print_port_table(open_ports)
     else:
         print(f"\n  {c.RED}No open ports found.{c.RESET}")
 
@@ -166,11 +271,31 @@ def print_results(open_ports, total_scanned, protocol, duration):
     print(f"{c.CYAN}{'=' * 60}{c.RESET}\n")
 
 
+_FILENAME_ILLEGAL = '\\/:*?"<>|'
+
+
+def sanitize_filename(filepath):
+    """Strip characters that are illegal in filenames, preserving directories."""
+    parent, name = os.path.split(filepath)
+    cleaned = "".join(
+        "_" if ch in _FILENAME_ILLEGAL else ch for ch in name
+    ).strip() or "portwatcher_scan"
+    return os.path.join(parent, cleaned) if parent else cleaned
+
+
+def _prepare_path(filepath):
+    """Ensure the parent directory of ``filepath`` exists."""
+    parent = os.path.dirname(os.path.abspath(filepath))
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
+
 def export_to_csv(results, filepath):
     """Export scan results to a CSV file."""
     if not results:
         return False
     try:
+        _prepare_path(filepath)
         fieldnames = ["port", "status", "service"]
         if any("proto" in r for r in results):
             fieldnames.append("proto")
@@ -189,6 +314,7 @@ def export_to_json(results, filepath):
     if not results:
         return False
     try:
+        _prepare_path(filepath)
         with open(filepath, "w") as f:
             json.dump(results, f, indent=2)
         return True
@@ -233,6 +359,8 @@ def prompt_export(results):
 
     if not filename.endswith(ext):
         filename += ext
+
+    filename = sanitize_filename(filename)
 
     print()
     if export_fn(results, filename):
