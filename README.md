@@ -40,17 +40,17 @@
   Source IP   : 10.0.0.42
 ──────────────────────────────────────────────────
 
-PORT      STATUS      SERVICE
-──────────────────────────────────────────────────
-21        OPEN        FTP
-22        OPEN        SSH
-80        OPEN        HTTP
-443       OPEN        HTTPS
-3306      OPEN        MySQL
+PORT      STATUS      SERVICE         PRODUCT
+──────────────────────────────────────────────────────────
+21        OPEN        FTP             vsftpd 3.0.5
+22        OPEN        SSH             OpenSSH 9.6
+80        OPEN        HTTP            nginx/1.24.0
+443       OPEN        HTTPS           TLSv1.3 TLS_AES_256_GCM_SHA384
+3306      OPEN        MySQL           MySQL 8.0.36
 5432      FILTERED    PostgreSQL
-8080      OPEN        HTTP Alt
+8080      OPEN        HTTP            Apache-Coyote/1.1
 
-Scanned 70 ports in 3.42 seconds
+Scanned 70 ports in 2.18 seconds
 ```
 
 ---
@@ -79,7 +79,7 @@ Scanned 70 ports in 3.42 seconds
 
 ## About the Project
 
-PortWatcher is a standalone CLI port scanner built entirely with Python's standard library. It identifies open ports and resolves service names on any target host using TCP and UDP scanning protocols. The tool operates with a multi-threaded architecture (100 concurrent workers) to deliver fast, real-time results with a polished terminal interface.
+PortWatcher is a standalone CLI port scanner built entirely with Python's standard library. It identifies open ports and resolves service names on any target host using TCP and UDP scanning protocols. Service identification is layered: banner and protocol fingerprinting, a curated IANA-style table, and the operating system's own service database. For local targets it also maps each listening port to the process that owns it. The tool operates with a bounded multi-threaded architecture (200 concurrent workers by default) to deliver fast, real-time results with a polished terminal interface.
 
 **Problem it solves:** Network professionals need a lightweight, zero-dependency scanner that can quickly inventory open ports across a target, identify running services, and work cross-platform without installation overhead.
 
@@ -97,10 +97,11 @@ PortWatcher is a standalone CLI port scanner built entirely with Python's standa
 | Differentiator | Details |
 |----------------|---------|
 | **Zero Dependencies** | Uses only Python standard library modules — no `pip install` required |
-| **Multi-threaded** | 100 concurrent scanning threads for high throughput |
+| **Multi-threaded** | 200 concurrent scanning threads with a bounded work queue |
 | **Cross-platform** | Works on Windows, Linux, and macOS with automatic ANSI color support |
 | **Dual Protocol** | Scans both TCP and UDP with protocol-specific probes |
-| **Service Detection** | Maps 60+ TCP ports and 24 UDP ports to human-readable service names |
+| **Layered Service Detection** | Banner/version fingerprinting + curated table + OS service database |
+| **Local Process Mapping** | Maps listening ports to the owning process when scanning this machine |
 | **Instant Setup** | Clone and run — no virtual environment, no build steps |
 
 ---
@@ -113,9 +114,14 @@ PortWatcher is a standalone CLI port scanner built entirely with Python's standa
 | Full TCP Range Scanning | Scans all 65,535 TCP ports (1-65535) |
 | UDP Port Scanning | Dedicated UDP scanning with protocol-specific probes (DNS, SNMP, NTP, IKE, SSDP, mDNS) |
 | Combined Protocol Scanning | Simultaneous TCP (full range) + UDP (common ports) scanning |
-| Multi-threaded Architecture | ThreadPoolExecutor with 100 concurrent workers for parallel scanning |
+| Multi-threaded Architecture | Bounded ThreadPoolExecutor with 200 concurrent workers for parallel scanning |
 | Real-time Progress Bar | Thread-safe progress bar with percentage, count, and visual indicator |
-| Service Name Detection | Maps ports to known service names (HTTP, SSH, MySQL, etc.) |
+| Layered Service Detection | Banner/version fingerprinting, curated IANA-style table, and OS service database |
+| Banner and Version Capture | HTTP, HTTPS/TLS, SSH, FTP, SMTP, POP3, IMAP, MySQL, Redis, Memcached, VNC, RDP |
+| Local Process Attribution | Maps listening ports to the owning process (Windows, Linux, macOS) |
+| Unknown-Port Resolution | Identifies services running on non-standard ports via active probes |
+| Retry Support | Optional retries for timed-out TCP/UDP ports on lossy links |
+| Filtered Port Reporting | Optional `--show-filtered` output for TCP ports that do not respond |
 | Hostname Resolution | Automatically resolves hostnames to IPv4 addresses |
 | Local IP Detection | Detects the local outward-facing IP address |
 | Colored Terminal Output | Full ANSI color support with Windows compatibility via `ctypes` |
@@ -133,10 +139,10 @@ PortWatcher is a standalone CLI port scanner built entirely with Python's standa
 | Component | Technology |
 |-----------|------------|
 | **Language** | Python 3.6+ |
-| **Networking** | `socket` (TCP/UDP communication) |
+| **Networking** | `socket` (TCP/UDP communication), `ssl` (TLS fingerprinting) |
 | **Concurrency** | `concurrent.futures` (ThreadPoolExecutor), `threading` |
-| **System** | `os`, `sys`, `ctypes` (Windows ANSI support) |
-| **Display** | `time` (progress tracking) |
+| **System** | `os`, `sys`, `ctypes` (Windows ANSI/process support), `subprocess` (local process tables) |
+| **Display** | `time` (progress tracking), ANSI escape codes |
 | **External Dependencies** | None |
 
 ---
@@ -151,9 +157,16 @@ PortWatcher/
 ├── README.md                     # Project documentation
 ├── .gitignore                    # Git ignore rules
 │
+├── tests/                        # Standard-library unit and integration tests
+│   ├── test_app.py               # CLI parsing and export tests
+│   ├── test_scanner.py           # Loopback TCP/UDP scanning tests
+│   └── test_services.py          # Service and banner fingerprint tests
+│
 └── Protocols/
     ├── __init__.py               # Package initializer
-    ├── utils.py                  # Shared utilities, colors, service maps, probes
+    ├── config.py                 # Shared timeouts, worker and retry defaults
+    ├── services.py               # Service maps, banners, UDP and process detection
+    ├── utils.py                  # Shared utilities, colors, scan engine, export
     ├── Tcp.py                    # TCP scanner (common ports, threaded)
     ├── Udp.py                    # UDP scanner (common ports with probes, threaded)
     └── AllProtocol.py            # Combined scanner (all TCP + common UDP)
@@ -192,15 +205,17 @@ PortWatcher is configured via constants hardcoded in the source files. There are
 
 | Constant | Value | File | Description |
 |----------|-------|------|-------------|
-| `TIMEOUT` | `0.5` | `Tcp.py`, `Udp.py`, `AllProtocol.py` | Socket timeout in seconds per port |
-| `MAX_WORKERS` | `100` | `Tcp.py`, `Udp.py`, `AllProtocol.py` | Maximum concurrent scanning threads |
+| `DEFAULT_TIMEOUT` | `0.5` | `config.py` | Socket timeout in seconds per port |
+| `DEFAULT_WORKERS` | `200` | `config.py` | Maximum concurrent scanning threads |
+| `DEFAULT_RETRIES` | `0` | `config.py` | Extra attempts for timed-out ports |
+| `DEFAULT_BANNER_TIMEOUT` | `0.75` | `config.py` | Banner/version probe timeout |
 | `COMMON_TCP_PORTS` | 70+ ports | `utils.py` | Curated list of common TCP ports to scan |
 | `COMMON_UDP_PORTS` | 24 ports | `utils.py` | Curated list of common UDP ports to scan |
-| `TCP_SERVICES` | 60+ mappings | `utils.py` | TCP port-to-service-name dictionary |
-| `UDP_SERVICES` | 24 mappings | `utils.py` | UDP port-to-service-name dictionary |
+| `TCP_SERVICES` | 120+ mappings | `services.py` | Curated TCP port-to-service-name table |
+| `UDP_SERVICES` | 30+ mappings | `services.py` | Curated UDP port-to-service-name table |
 | `UDP_PROBES` | 6 probes | `utils.py` | Binary probe payloads for UDP services |
 
-To customize scanning behavior, edit these constants directly in the respective source files. When using the CLI, `--timeout`, `--workers`, and `-r/--range` override the corresponding defaults for that run without editing the source.
+To customize scanning behavior, edit these constants directly in the respective source files. When using the CLI, `--timeout`, `--banner-timeout`, `--workers`, `--retries`, and `-r/--range` override the corresponding defaults for that run without editing the source.
 
 ---
 
@@ -250,8 +265,12 @@ python app.py 192.168.1.1 -p all
 python app.py 192.168.1.1 -r 1-1024 -o results.csv
 python app.py 192.168.1.1 -p udp -o results.json
 
-# Tune timeout and concurrency
-python app.py 192.168.1.1 --timeout 1.0 --workers 200
+# Tune timeout, banner probe, concurrency and retries
+python app.py 192.168.1.1 --timeout 1.0 --banner-timeout 1.5 --workers 300 --retries 1
+
+# Skip banner probing, or include filtered TCP ports
+python app.py 192.168.1.1 --no-identify
+python app.py 192.168.1.1 -r 1-1024 --show-filtered
 ```
 
 | Flag | Description |
@@ -261,7 +280,11 @@ python app.py 192.168.1.1 --timeout 1.0 --workers 200
 | `-r, --range` | Ports to scan: `22,80,443` or `1-1000` (defaults to common ports; for `all` it applies to the TCP range) |
 | `-o, --output` | Export results to a `.csv` or `.json` file |
 | `--timeout` | Per-port socket timeout in seconds (default `0.5`) |
-| `--workers` | Maximum concurrent scanning threads (default `100`) |
+| `--banner-timeout` | Banner/version probe timeout in seconds (default `0.75`) |
+| `--workers` | Maximum concurrent scanning threads (default `200`) |
+| `--retries` | Extra attempts for timed-out ports (default `0`) |
+| `--no-identify` | Skip banner/version detection on open ports |
+| `--show-filtered` | Include filtered TCP ports in results |
 | `--no-color` | Disable colored output (auto-disabled when stdout is not a terminal) |
 | `--no-progress` | Disable the progress bar (auto-disabled when stdout is not a terminal) |
 | `-v, --version` | Show version and exit |
@@ -297,9 +320,41 @@ Each will prompt for a target hostname or IP when run independently.
 | `python app.py <target> -p all` | Scan all TCP (1-65535) + common UDP ports |
 | `python app.py <target> -r 22,80,443` | Scan a custom list or range of ports |
 | `python app.py <target> -o results.csv` | Export results to CSV or JSON |
+| `python app.py <target> --no-identify` | Skip banner/version probing |
+| `python app.py <target> --show-filtered` | Include filtered TCP ports |
+| `python app.py <target> --retries 1` | Retry timed-out ports once |
+| `python -m unittest discover -s tests` | Run the test suite |
 | `python Protocols/Tcp.py` | Run TCP common port scan directly |
 | `python Protocols/Udp.py` | Run UDP common port scan directly |
 | `python Protocols/AllProtocol.py` | Run full TCP (1-65535) + UDP scan directly |
+
+---
+
+## Service Identification
+
+When a port is open, PortWatcher resolves its service using three layers, stopping at the first confident match:
+
+1. **Banner and protocol fingerprinting** — probes the open port and reads its response. Supported families include HTTP/HTTPS, TLS, SSH, FTP, SMTP, POP3, IMAP, MySQL, Redis, Memcached, VNC, RDP, and generic text banners. This is what identifies services running on non-standard ports.
+2. **Curated service table** — 120+ TCP and 30+ UDP mappings for well-known services.
+3. **Operating system service database** — `socket.getservbyport()` reads the local OS service registry (for example `epmap` → MSRPC, `microsoft-ds` → SMB).
+
+If all three layers fail, the port is reported as `Unknown`; if a banner was still captured, its text is shown in the `Product` column.
+
+### Local process attribution
+
+When the target is this machine or a loopback address, PortWatcher also maps each listening port to the process that owns it:
+
+| Platform | Source |
+|----------|--------|
+| Windows | `netstat -ano` + `QueryFullProcessImageNameW` |
+| Linux | `/proc/net/{tcp,udp}` + `/proc/<pid>/fd` |
+| macOS | `lsof -nP -iTCP -iUDP` |
+
+Process mapping is only possible for local targets. Remote hosts are identified through banners and the service tables above.
+
+### Result fields
+
+Each result contains `port`, `status`, `service`, and `confidence` (`high` for banner matches, `medium` for OS/table matches, `low` for port-number-only matches). `product`, `banner`, `process`, `pid`, and `proto` are added when available.
 
 ---
 
@@ -314,8 +369,8 @@ Each will prompt for a target hostname or IP when run independently.
 | 23 | Telnet | 5432 | PostgreSQL |
 | 25 | SMTP | 5900 | VNC |
 | 53 | DNS | 6379 | Redis |
-| 80 | HTTP | 8080 | HTTP Alt |
-| 443 | HTTPS | 8443 | HTTPS Alt |
+| 80 | HTTP | 8080 | HTTP-Proxy |
+| 443 | HTTPS | 8443 | HTTPS-Alt |
 | 993 | IMAPS | 27017 | MongoDB |
 
 ### UDP Common Ports
@@ -335,14 +390,15 @@ Each will prompt for a target hostname or IP when run independently.
 
 | Scan Type | Estimated Time | Details |
 |-----------|---------------|---------|
-| TCP Common Ports | 2-5 seconds | 70+ ports, 100 threads, 0.5s timeout |
+| TCP Common Ports | 2-5 seconds | 70+ ports, 200 threads, 0.5s timeout |
 | UDP Common Ports | 5-10 seconds | 24 ports with protocol probes |
 | Full TCP Range + UDP | 2-5 minutes | 65,535 TCP ports + common UDP |
 
 **Notes:**
 - Timing is network-dependent and varies with latency and firewall rules
-- Thread-safe progress tracking ensures accurate real-time updates
-- Each port is tested with a 0.5-second socket timeout
+- The thread pool keeps only a bounded number of futures in flight, which lowers memory use and makes Ctrl+C responsive
+- Each port is tested with a 0.5-second socket timeout by default
+- Banner probing only runs against ports that are already open
 
 ---
 
@@ -353,20 +409,24 @@ Each will prompt for a target hostname or IP when run independently.
 - [x] TCP common port scanning with service detection
 - [x] Full TCP range scanning (1-65535)
 - [x] UDP port scanning with protocol-specific probes
-- [x] Multi-threaded architecture (100 concurrent workers)
+- [x] Multi-threaded architecture with bounded work queue (200 workers)
 - [x] Real-time thread-safe progress bar
 - [x] Interactive CLI menu system with colored output
 - [x] Hostname resolution and local IP detection
 - [x] Cross-platform support (Windows, Linux, macOS)
 - [x] Windows ANSI color support via `ctypes`
 - [x] Export results to CSV/JSON format
+- [x] Banner grabbing and version detection
+- [x] OS service database lookup for unknown ports
+- [x] Local process attribution (port → PID → process)
+- [x] Optional retries and filtered-port reporting
+- [x] Standard-library test suite
 
 ### Planned
 
 - [ ] GUI interface using tkinter or PyQt
 - [ ] Ping sweep before port scanning
 - [ ] Firewall detection and bypass techniques
-- [ ] Banner grabbing capabilities
 - [ ] Configuration file support (`.ini` / `.yaml`)
 - [ ] IPv6 support
 - [ ] Host discovery (network enumeration)
@@ -428,6 +488,24 @@ UDP is connectionless, so the scanner must send probes and wait for responses or
 <summary><strong>What does "OPEN|FILTERED" mean?</strong></summary>
 
 When a UDP port returns no response and times out, the port status is reported as OPEN|FILTERED — meaning the port could be open (accepting but not responding) or filtered by a firewall that silently drops packets.
+</details>
+
+<details>
+<summary><strong>Why does a port still show "Unknown"?</strong></summary>
+
+PortWatcher tries three layers: banner/version fingerprinting, a curated service table, and the operating system service database. `Unknown` means the service did not respond to any probe, the port is not registered in the OS database, and it is not in the curated table. If a text banner was captured, it is still shown in the `Product` column.
+</details>
+
+<details>
+<summary><strong>Can PortWatcher tell me which process owns a port?</strong></summary>
+
+Yes, when the target is this machine or a loopback address. It maps the listening port to a PID and process name using `netstat`/`QueryFullProcessImageNameW` on Windows, `/proc` on Linux, and `lsof` on macOS. Remote hosts cannot be inspected this way; they are identified through banners and service tables.
+</details>
+
+<details>
+<summary><strong>Does banner probing send data to the target?</strong></summary>
+
+Only to ports that are already confirmed open. Probes are small, limited to a short timeout, and are never sent to closed or filtered ports. Use `--no-identify` to disable probing entirely.
 </details>
 
 <details>

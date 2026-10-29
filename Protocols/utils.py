@@ -2,19 +2,50 @@
 
 import os
 import sys
-import socket
-import ctypes
 import csv
 import json
-import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import errno
+import socket
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+
+try:  # package import
+    from .config import (
+        DEFAULT_TIMEOUT, DEFAULT_WORKERS, DEFAULT_RETRIES,
+        DEFAULT_BANNER_TIMEOUT, PENDING_PER_WORKER,
+    )
+    from .services import (
+        TCP_SERVICES, UDP_SERVICES, lookup_service, grab_banner,
+        fingerprint_udp_response, reverse_dns, attach_local_processes,
+    )
+except ImportError:  # direct script import (Protocols/ is on sys.path)
+    from config import (
+        DEFAULT_TIMEOUT, DEFAULT_WORKERS, DEFAULT_RETRIES,
+        DEFAULT_BANNER_TIMEOUT, PENDING_PER_WORKER,
+    )
+    from services import (
+        TCP_SERVICES, UDP_SERVICES, lookup_service, grab_banner,
+        fingerprint_udp_response, reverse_dns, attach_local_processes,
+    )
 
 if os.name == "nt":
     try:
+        import ctypes
         kernel32 = ctypes.windll.kernel32
         kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 0x0007)
     except Exception:
         pass
+
+__all__ = [
+    "Color", "set_color_enabled", "TCP_SERVICES", "UDP_SERVICES",
+    "COMMON_TCP_PORTS", "COMMON_UDP_PORTS", "UDP_PROBES",
+    "DEFAULT_TIMEOUT", "DEFAULT_WORKERS", "DEFAULT_RETRIES",
+    "DEFAULT_BANNER_TIMEOUT", "PENDING_PER_WORKER",
+    "lookup_service", "grab_banner", "fingerprint_udp_response",
+    "reverse_dns", "attach_local_processes", "resolve_target",
+    "get_local_ip", "scan_tcp_port", "scan_udp_port", "run_threaded_scan",
+    "print_banner", "print_progress", "print_port_table", "print_results",
+    "sanitize_filename", "export_to_csv", "export_to_json", "prompt_export",
+]
 
 
 class Color:
@@ -41,36 +72,6 @@ def set_color_enabled(enabled):
         setattr(Color, name, code if enabled else "")
 
 
-TCP_SERVICES = {
-    7: "Echo", 9: "Discard", 13: "Daytime", 21: "FTP", 22: "SSH",
-    23: "Telnet", 25: "SMTP", 53: "DNS", 80: "HTTP", 110: "POP3",
-    111: "RPCBind", 135: "MSRPC", 139: "NetBIOS", 143: "IMAP",
-    161: "SNMP", 389: "LDAP", 443: "HTTPS", 445: "SMB", 465: "SMTPS",
-    514: "Syslog", 515: "LPD", 554: "RTSP", 587: "Submission",
-    631: "IPP", 636: "LDAPS", 873: "Rsync", 990: "FTPS", 993: "IMAPS",
-    995: "POP3S", 1080: "SOCKS", 1433: "MSSQL", 1521: "Oracle",
-    1720: "H.323", 1723: "PPTP", 1900: "SSDP", 2049: "NFS",
-    3000: "Dev-Server", 3306: "MySQL", 3389: "RDP", 4444: "Metasploit",
-    5000: "Flask", 5060: "SIP", 5061: "SIPS", 5432: "PostgreSQL",
-    5555: "ADB", 5900: "VNC", 6379: "Redis", 6666: "IRC", 7777: "Oracle-JVM",
-    8008: "HTTP-Alt", 8080: "Proxy", 8443: "HTTPS-Alt", 8888: "HTTP-Alt",
-    9000: "PHP-FPM", 9001: "ETCD", 9300: "Elasticsearch",
-    11211: "Memcached", 12345: "NetBus", 27017: "MongoDB",
-    28017: "MongoDB-Web", 31337: "BackOrifice",
-    49152: "Ephemeral", 49153: "Ephemeral", 49154: "Ephemeral",
-    49155: "Ephemeral", 49156: "Ephemeral", 49157: "Ephemeral",
-    50000: "SAP", 50070: "HDFS", 50090: "HDFS-Secondary",
-}
-
-UDP_SERVICES = {
-    53: "DNS", 67: "DHCP", 68: "DHCP", 69: "TFTP", 88: "Kerberos",
-    123: "NTP", 135: "MSRPC", 137: "NetBIOS-NS", 138: "NetBIOS-DGM",
-    161: "SNMP", 389: "LDAP", 500: "IKE", 514: "Syslog", 520: "RIP",
-    623: "IPMI", 1434: "MSSQL-Browser", 1900: "SSDP", 2049: "NFS",
-    4500: "NAT-T", 5353: "mDNS", 5355: "LLMNR", 6379: "Redis",
-    11211: "Memcached", 27017: "MongoDB",
-}
-
 UDP_PROBES = {
     53: b"\x00\x00\x10\x00\x00\x01\x00\x00\x00\x00\x00\x00\x07version\x04bind\x00\x00\x10\x00\x03",
     123: b"\x1b\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
@@ -95,119 +96,210 @@ COMMON_UDP_PORTS = sorted([
     623, 1434, 1900, 2049, 4500, 5353, 5355, 6379, 11211, 27017,
 ])
 
+# errno values for a definitively closed TCP port (POSIX and Winsock).
+_CLOSED_ERRNOS = {111, 10061, getattr(errno, "ECONNREFUSED", 111)}
+
 
 def resolve_target(target):
     """Resolve hostname/IP. Returns resolved IP string or None."""
+    target = (target or "").strip()
+    if not target:
+        return None
     try:
         socket.inet_pton(socket.AF_INET, target)
         return target
     except (socket.error, OSError):
         pass
     try:
-        info = socket.getaddrinfo(target, None, socket.AF_INET)
+        info = socket.getaddrinfo(
+            target, None, socket.AF_INET, socket.SOCK_STREAM)
         return info[0][4][0]
-    except (socket.gaierror, IndexError):
+    except (socket.gaierror, IndexError, OSError):
         return None
 
 
 def get_local_ip():
     """Get local outward-facing IP."""
     try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.settimeout(1)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(1)
+        sock.connect(("8.8.8.8", 80))
+        ip = sock.getsockname()[0]
+        sock.close()
         return ip
     except Exception:
         return "127.0.0.1"
 
 
-def scan_tcp_port(target, port, timeout, proto=None):
-    """Scan a single TCP port. Returns dict if open, None otherwise."""
+def _tcp_connect(target, port, timeout):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(timeout)
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(timeout)
-        result = sock.connect_ex((target, port))
-        sock.close()
-        if result == 0:
-            entry = {
-                "port": port,
-                "status": "OPEN",
-                "service": TCP_SERVICES.get(port, "Unknown"),
-            }
-            if proto:
-                entry["proto"] = proto
-            return entry
+        return sock.connect_ex((target, port))
     except (socket.error, OSError):
-        pass
+        return None
+    finally:
+        try:
+            sock.close()
+        except OSError:
+            pass
+
+
+def scan_tcp_port(target, port, timeout, proto=None, identify=True,
+                  banner_timeout=None, retries=0, include_filtered=False):
+    """Scan a single TCP port. Returns a result dict when relevant."""
+    code = None
+    for _ in range(retries + 1):
+        code = _tcp_connect(target, port, timeout)
+        if code == 0 or code in _CLOSED_ERRNOS:
+            break
+
+    proto_name = (proto or "tcp").lower()
+    if code == 0:
+        service, confidence = lookup_service(port, proto_name)
+        entry = {
+            "port": port,
+            "status": "OPEN",
+            "service": service,
+            "confidence": confidence,
+        }
+        if proto:
+            entry["proto"] = proto
+        if identify:
+            fingerprint = grab_banner(
+                target, port,
+                banner_timeout if banner_timeout is not None else DEFAULT_BANNER_TIMEOUT,
+            )
+            if fingerprint:
+                if fingerprint.get("service"):
+                    entry["service"] = fingerprint["service"]
+                    entry["confidence"] = fingerprint.get("confidence", "high")
+                if fingerprint.get("product"):
+                    entry["product"] = fingerprint["product"]
+                if fingerprint.get("banner"):
+                    entry["banner"] = fingerprint["banner"]
+        return entry
+
+    if include_filtered and code not in _CLOSED_ERRNOS and code is not None:
+        service, confidence = lookup_service(port, proto_name)
+        entry = {
+            "port": port,
+            "status": "FILTERED",
+            "service": service,
+            "confidence": confidence,
+        }
+        if proto:
+            entry["proto"] = proto
+        return entry
     return None
 
 
-def _udp_entry(port, status, service, proto):
-    entry = {"port": port, "status": status, "service": service}
+def _udp_entry(port, status, service, proto, confidence="low"):
+    entry = {
+        "port": port,
+        "status": status,
+        "service": service,
+        "confidence": confidence,
+    }
     if proto:
         entry["proto"] = proto
     return entry
 
 
-def scan_udp_port(target, port, timeout, proto=None):
-    """Scan a single UDP port. Returns dict with status or None."""
-    service = UDP_SERVICES.get(port, "Unknown")
+def scan_udp_port(target, port, timeout, proto=None, identify=True,
+                  retries=0):
+    """Scan a single UDP port. Returns a result dict with a status."""
+    proto_name = (proto or "udp").lower()
+    service, confidence = lookup_service(port, proto_name)
     probe = UDP_PROBES.get(port, b"\x00")
-    try:
+
+    sent_any = False
+    for _ in range(retries + 1):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.settimeout(timeout)
         try:
-            sock.sendto(probe, (target, port))
-        except OSError:
-            sock.close()
-            return _udp_entry(port, "FILTERED", service, proto)
-        try:
-            sock.recvfrom(1024)
-            sock.close()
-            return _udp_entry(port, "OPEN", service, proto)
-        except socket.timeout:
-            sock.close()
-            return _udp_entry(port, "OPEN|FILTERED", service, proto)
-        except ConnectionRefusedError:
-            sock.close()
-            return None
-    except (socket.error, OSError):
-        return None
+            try:
+                sock.sendto(probe, (target, port))
+                sent_any = True
+            except OSError:
+                continue
+            try:
+                data, _ = sock.recvfrom(4096)
+            except socket.timeout:
+                continue
+            except (ConnectionRefusedError, ConnectionResetError):
+                return None
+            except OSError:
+                return None
+        finally:
+            try:
+                sock.close()
+            except OSError:
+                pass
+
+        fingerprint = fingerprint_udp_response(data, port) if identify else None
+        entry = _udp_entry(port, "OPEN", service, proto, confidence)
+        if fingerprint:
+            if fingerprint.get("service"):
+                entry["service"] = fingerprint["service"]
+            if fingerprint.get("product"):
+                entry["product"] = fingerprint["product"]
+            entry["confidence"] = fingerprint.get("confidence", "high")
+        return entry
+
+    if not sent_any:
+        return _udp_entry(port, "FILTERED", service, proto, confidence)
+    return _udp_entry(port, "OPEN|FILTERED", service, proto, confidence)
 
 
-def run_threaded_scan(worker, items, max_workers=100, show_progress=True):
-    """Run ``worker(item)`` for each item concurrently.
+def run_threaded_scan(worker, items, max_workers=DEFAULT_WORKERS,
+                      show_progress=True):
+    """Run ``worker(item)`` for each item with bounded concurrency.
 
     Returns ``(results, interrupted)`` where ``results`` contains every
     non-None worker return value collected before completion.
     """
     results = []
-    counter = [0]
-    last_pct = [-1]
-    lock = threading.Lock()
     total = len(items)
+    last_pct = [-1]
+    counter = [0]
     executor = ThreadPoolExecutor(max_workers=max_workers)
-    futures = []
+    pending = set()
+    item_iter = iter(items)
     interrupted = False
+
+    def submit_next():
+        try:
+            item = next(item_iter)
+        except StopIteration:
+            return False
+        pending.add(executor.submit(worker, item))
+        return True
+
     try:
-        futures = [executor.submit(worker, item) for item in items]
-        for future in as_completed(futures):
-            result = future.result()
-            if result:
-                results.append(result)
-            with lock:
+        for _ in range(min(total, max_workers * PENDING_PER_WORKER)):
+            if not submit_next():
+                break
+        while pending:
+            done, pending = wait(pending, return_when=FIRST_COMPLETED)
+            for future in done:
+                try:
+                    result = future.result()
+                except Exception:
+                    result = None
+                if result:
+                    results.append(result)
                 counter[0] += 1
-                current = counter[0]
                 if show_progress and total:
-                    pct = current * 100 // total
-                    if pct != last_pct[0] or current == total:
+                    pct = counter[0] * 100 // total
+                    if pct != last_pct[0] or counter[0] == total:
                         last_pct[0] = pct
-                        print_progress(current, total)
+                        print_progress(counter[0], total)
+            for _ in range(len(done)):
+                submit_next()
     except KeyboardInterrupt:
         interrupted = True
-        for future in futures:
+        for future in pending:
             future.cancel()
     finally:
         if show_progress and total:
@@ -222,7 +314,8 @@ def run_threaded_scan(worker, items, max_workers=100, show_progress=True):
     return results, interrupted
 
 
-def print_banner(target_ip, local_ip, protocol, port_count, scan_type=""):
+def print_banner(target_ip, local_ip, protocol, port_count, scan_type="",
+                 hostname=None):
     """Print formatted scan header."""
     c = Color
     print()
@@ -231,6 +324,8 @@ def print_banner(target_ip, local_ip, protocol, port_count, scan_type=""):
     print(f"{c.CYAN}{'=' * 60}{c.RESET}")
     print(f"  {c.DIM}Source:{c.RESET}      {local_ip}")
     print(f"  {c.DIM}Target:{c.RESET}      {target_ip}")
+    if hostname and hostname != target_ip:
+        print(f"  {c.DIM}Hostname:{c.RESET}    {hostname}")
     print(f"  {c.DIM}Protocol:{c.RESET}    {protocol}")
     range_line = f"{port_count:,} ports"
     if scan_type:
@@ -256,28 +351,47 @@ def print_progress(current, total):
 
 def _clear_progress_line():
     """Erase the in-place progress bar so results print cleanly."""
-    sys.stdout.write("\r" + " " * 60 + "\r")
+    sys.stdout.write("\r" + " " * 100 + "\r")
     sys.stdout.flush()
 
 
 def print_port_table(rows):
     """Print a Port/Status/Service table for the given result rows."""
     c = Color
-    print(f"  {'Port':>7}  {'Status':<16}  Service")
-    print(f"  {'-' * 7}  {'-' * 16}  {'-' * 20}")
-    for p in rows:
-        status_color = c.GREEN if p["status"] == "OPEN" else c.YELLOW
-        print(
-            f"  {c.WHITE}{p['port']:>7}{c.RESET}  "
-            f"{status_color}{p['status']:<16}{c.RESET}  "
-            f"{c.DIM}{p['service']}{c.RESET}"
+    has_product = any(row.get("product") for row in rows)
+    has_process = any(row.get("process") for row in rows)
+
+    header = f"  {'Port':>7}  {'Status':<16}  {'Service':<20}"
+    divider = f"  {'-' * 7}  {'-' * 16}  {'-' * 20}"
+    if has_product:
+        header += f"  {'Product':<28}"
+        divider += f"  {'-' * 28}"
+    if has_process:
+        header += "  Process"
+        divider += f"  {'-' * 20}"
+    print(header)
+    print(divider)
+
+    for port in rows:
+        status_color = c.GREEN if port["status"] == "OPEN" else c.YELLOW
+        line = (
+            f"  {c.WHITE}{port['port']:>7}{c.RESET}  "
+            f"{status_color}{port['status']:<16}{c.RESET}  "
+            f"{c.DIM}{port.get('service', 'Unknown'):<20}{c.RESET}"
         )
+        if has_product:
+            line += f"  {port.get('product') or '':<28}"
+        if has_process:
+            line += f"  {port.get('process') or ''}"
+        print(line.rstrip())
 
 
 def print_results(open_ports, total_scanned, protocol, duration):
     """Print formatted single-protocol scan results."""
     c = Color
-    rows = sorted(open_ports, key=lambda x: x["port"])
+    rows = sorted(open_ports, key=lambda item: item["port"])
+    open_count = sum(1 for row in rows if row.get("status") == "OPEN")
+    filtered_count = len(rows) - open_count
 
     print()
     print(f"{c.CYAN}{'=' * 60}{c.RESET}")
@@ -285,7 +399,10 @@ def print_results(open_ports, total_scanned, protocol, duration):
     print(f"{c.CYAN}{'=' * 60}{c.RESET}")
 
     if rows:
-        print(f"\n  {c.GREEN}{c.BOLD}{len(rows)} open port(s) found:{c.RESET}\n")
+        found = f"\n  {c.GREEN}{c.BOLD}{open_count} open port(s)"
+        if filtered_count:
+            found += f", {filtered_count} filtered"
+        print(f"{found} found:{c.RESET}\n")
         print_port_table(rows)
     else:
         print(f"\n  {c.RED}No open ports found.{c.RESET}")
@@ -293,13 +410,17 @@ def print_results(open_ports, total_scanned, protocol, duration):
     print(f"\n{c.CYAN}{'-' * 60}{c.RESET}")
     print(
         f"  Scanned: {total_scanned:,} ports | "
-        f"Open: {len(rows)} | "
+        f"Open: {open_count} | "
         f"Time: {duration}"
     )
     print(f"{c.CYAN}{'=' * 60}{c.RESET}\n")
 
 
 _FILENAME_ILLEGAL = '\\/:*?"<>|'
+_FIELD_ORDER = [
+    "port", "status", "service", "proto", "product", "process", "pid",
+    "confidence", "banner",
+]
 
 
 def sanitize_filename(filepath):
@@ -322,6 +443,15 @@ def _sort_key(result):
     return (result.get("proto", ""), result["port"])
 
 
+def _fieldnames(rows):
+    present = set()
+    for row in rows:
+        present.update(row.keys())
+    ordered = [field for field in _FIELD_ORDER if field in present]
+    ordered.extend(sorted(present - set(ordered)))
+    return ordered
+
+
 def export_to_csv(results, filepath):
     """Export scan results to a CSV file."""
     if not results:
@@ -329,11 +459,11 @@ def export_to_csv(results, filepath):
     try:
         _prepare_path(filepath)
         rows = sorted(results, key=_sort_key)
-        fieldnames = ["port", "status", "service"]
-        if any("proto" in r for r in rows):
-            fieldnames.append("proto")
-        with open(filepath, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
+        with open(filepath, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(
+                handle, fieldnames=_fieldnames(rows),
+                extrasaction="ignore", restval="",
+            )
             writer.writeheader()
             writer.writerows(rows)
         return True
@@ -348,8 +478,11 @@ def export_to_json(results, filepath):
         return False
     try:
         _prepare_path(filepath)
-        with open(filepath, "w") as f:
-            json.dump(sorted(results, key=_sort_key), f, indent=2)
+        with open(filepath, "w", encoding="utf-8") as handle:
+            json.dump(
+                sorted(results, key=_sort_key), handle,
+                indent=2, ensure_ascii=False,
+            )
         return True
     except Exception as e:
         print(f"\n  {Color.RED}Export failed: {e}{Color.RESET}")

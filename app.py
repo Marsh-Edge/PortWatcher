@@ -9,12 +9,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Pro
 from Tcp import scan_tcp_ports
 from Udp import scan_udp_ports
 from AllProtocol import scan_all_ports
+from config import DEFAULT_BANNER_TIMEOUT, DEFAULT_RETRIES
 from utils import (
     Color, prompt_export, export_to_csv, export_to_json,
     resolve_target, set_color_enabled,
 )
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 
 def validate_target(target):
@@ -87,6 +88,14 @@ def show_menu():
     print()
 
 
+def clear_screen():
+    """Clear the terminal without spawning a subprocess."""
+    if not sys.stdout.isatty():
+        return
+    sys.stdout.write("\033[H\033[2J")
+    sys.stdout.flush()
+
+
 def interactive_menu():
     """Main interactive menu loop."""
     c = Color
@@ -120,10 +129,7 @@ def interactive_menu():
             print(f"\n  {c.GREEN}Goodbye!{c.RESET}\n")
             break
 
-        if os.name == "nt":
-            os.system("cls")
-        else:
-            os.system("clear")
+        clear_screen()
 
 
 def export_results(results, filepath):
@@ -159,6 +165,17 @@ def _positive_int(value):
     return number
 
 
+def _non_negative_int(value):
+    """argparse type: an integer greater than or equal to zero."""
+    try:
+        number = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid integer: '{value}'")
+    if number < 0:
+        raise argparse.ArgumentTypeError("must be zero or greater")
+    return number
+
+
 def build_parser():
     """Build the command-line argument parser."""
     parser = argparse.ArgumentParser(
@@ -187,8 +204,24 @@ def build_parser():
         help="Per-port socket timeout in seconds (default: 0.5).",
     )
     parser.add_argument(
-        "--workers", type=_positive_int, default=100,
-        help="Maximum concurrent scanning threads (default: 100).",
+        "--banner-timeout", type=_positive_float, default=DEFAULT_BANNER_TIMEOUT,
+        help="Banner/version probe timeout in seconds (default: 0.75).",
+    )
+    parser.add_argument(
+        "--workers", type=_positive_int, default=200,
+        help="Maximum concurrent scanning threads (default: 200).",
+    )
+    parser.add_argument(
+        "--retries", type=_non_negative_int, default=DEFAULT_RETRIES,
+        help="Extra attempts for timed-out ports (default: 0).",
+    )
+    parser.add_argument(
+        "--no-identify", dest="identify", action="store_false",
+        help="Skip banner/version detection on open ports.",
+    )
+    parser.add_argument(
+        "--show-filtered", action="store_true",
+        help="Include filtered TCP ports in the results.",
     )
     parser.add_argument(
         "--no-color", action="store_true",
@@ -219,20 +252,23 @@ def run_cli(args):
             print(f"  {Color.RED}Error: {e}{Color.RESET}")
             return 1
 
+    common = dict(
+        timeout=args.timeout, workers=args.workers,
+        show_progress=show_progress, identify=args.identify,
+        retries=args.retries,
+    )
+
     if args.protocol == "tcp":
         results = scan_tcp_ports(
-            args.target, ports=ports, timeout=args.timeout, workers=args.workers,
-            show_progress=show_progress,
+            args.target, ports=ports, show_filtered=args.show_filtered,
+            banner_timeout=args.banner_timeout, **common
         )
     elif args.protocol == "udp":
-        results = scan_udp_ports(
-            args.target, ports=ports, timeout=args.timeout, workers=args.workers,
-            show_progress=show_progress,
-        )
+        results = scan_udp_ports(args.target, ports=ports, **common)
     else:
         results = scan_all_ports(
-            args.target, tcp_ports=ports, timeout=args.timeout, workers=args.workers,
-            show_progress=show_progress,
+            args.target, tcp_ports=ports, show_filtered=args.show_filtered,
+            banner_timeout=args.banner_timeout, **common
         )
 
     if args.output:
